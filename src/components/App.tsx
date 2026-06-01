@@ -1,417 +1,173 @@
-/**
- * Main App Component
- * Orchestrates the entire bulk invite workflow
- */
-
-import { useState, useEffect } from "react";
-import { useGoogleAuth, useCampaign } from "@hooks/index";
+import { useState } from "react";
 import {
-  validateGoogleConfig,
-  getGoogleAuthURL,
-  handleOAuthCallback,
-} from "@utils/googleCalendar";
-import Header from "@components/Header";
-import CSVUploader from "@components/CSVUploader";
-import TemplateEditor from "@components/TemplateEditor";
-import InvitePreview from "@components/InvitePreview";
-import BulkSendForm from "@components/BulkSendForm";
+  Routes,
+  Route,
+  Navigate,
+  NavLink,
+  Outlet,
+  useOutletContext,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
+import { CampaignsList, CampaignFlow } from "./CampaignSection";
+import { TemplatesList, TemplateForm } from "./TemplatesSection";
+import type { Templates } from "./TemplatesSection";
+import type { Campaign } from "./CampaignSection";
 import "@styles/global.css";
 
-type AppStep = "auth" | "import" | "template" | "preview" | "send" | "done";
+// ─── Shared context ─────────────────────────────────────────────────────────
+
+export interface AppContext {
+  savedTemplates: Templates;
+  updateTemplates: (t: Templates) => void;
+  campaigns: Campaign[];
+  addCampaign: (c: Campaign) => void;
+}
+
+export function useAppContext() {
+  return useOutletContext<AppContext>();
+}
+
+// ─── Data loaders ────────────────────────────────────────────────────────────
+
+function loadTemplates(): Templates {
+  try { return JSON.parse(localStorage.getItem("spark-templates") || "{}"); }
+  catch { return {}; }
+}
+
+function loadCampaigns(): Campaign[] {
+  try { return JSON.parse(localStorage.getItem("spark-campaigns") || "[]"); }
+  catch { return []; }
+}
+
+// ─── Shell layout ─────────────────────────────────────────────────────────────
+
+function Shell() {
+  const [savedTemplates, setSavedTemplates] = useState<Templates>(loadTemplates);
+  const [campaigns, setCampaigns] = useState<Campaign[]>(loadCampaigns);
+
+  const updateTemplates = (t: Templates) => {
+    setSavedTemplates(t);
+    localStorage.setItem("spark-templates", JSON.stringify(t));
+  };
+
+  const addCampaign = (c: Campaign) => {
+    setCampaigns(prev => {
+      const next = [...prev, c];
+      localStorage.setItem("spark-campaigns", JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const ctx: AppContext = { savedTemplates, updateTemplates, campaigns, addCampaign };
+
+  return (
+    <div className="editor">
+      <Sidebar />
+      <div className="main">
+        <Appbar />
+        <div className="content">
+          <Outlet context={ctx} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
+
+function Sidebar() {
+  return (
+    <aside className="rail">
+      <div className="rail-header">
+        <div className="ab-logo">S</div>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "var(--tx)" }}>Spark</div>
+          <div style={{ fontSize: 12, color: "var(--tx3)" }}>Calendar Invites</div>
+        </div>
+      </div>
+      <div className="rail-body">
+        <NavLink
+          to="/campaigns"
+          end={false}
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <div className="nav-icon">📅</div>
+          <div>Campaigns</div>
+        </NavLink>
+        <NavLink
+          to="/templates"
+          end={false}
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <div className="nav-icon">📝</div>
+          <div>Templates</div>
+        </NavLink>
+      </div>
+    </aside>
+  );
+}
+
+// ─── Appbar ───────────────────────────────────────────────────────────────────
+
+const ROUTE_TITLES: Record<string, string> = {
+  "/campaigns":     "Campaigns",
+  "/campaigns/new": "New Campaign",
+  "/templates":     "Templates",
+  "/templates/new": "New Template",
+};
+
+function Appbar() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // For /templates/:id/edit, match dynamically
+  const editMatch = location.pathname.match(/^\/templates\/(.+)\/edit$/);
+  const title = editMatch
+    ? "Edit Template"
+    : (ROUTE_TITLES[location.pathname] ?? "Spark");
+
+  const onCampaignsList = location.pathname === "/campaigns";
+  const onTemplatesList = location.pathname === "/templates";
+
+  return (
+    <div className="appbar">
+      <span className="appbar-title">{title}</span>
+      <div className="ab-right">
+        {onCampaignsList && (
+          <button
+            className="btn btn-primary btn-appbar"
+            onClick={() => navigate("/campaigns/new")}
+          >
+            + New Campaign
+          </button>
+        )}
+        {onTemplatesList && (
+          <button
+            className="btn btn-primary btn-appbar"
+            onClick={() => navigate("/templates/new")}
+          >
+            + New Template
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Root ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [currentStep, setCurrentStep] = useState<AppStep>("auth");
-  const { isAuthenticated: isAuth, error: authError, login } = useGoogleAuth();
-  const { invitees, template, campaign, setInvitees, setTemplate } =
-    useCampaign();
-
-  // Handle OAuth callback on mount
-  useEffect(() => {
-    const token = handleOAuthCallback();
-    if (token) {
-      login(token);
-    }
-  }, [login]);
-
-  // Check Google config on mount
-  const googleConfig = validateGoogleConfig();
-
-  const canProceedFromAuth = isAuth && googleConfig.isValid;
-  const canProceedFromImport = invitees.length > 0;
-  const canProceedFromTemplate = template !== null;
-
-  const handleStepChange = (step: AppStep) => {
-    setCurrentStep(step);
-  };
-
-  const handleAuthSuccess = () => {
-    handleStepChange("import");
-  };
-
-  const handleCSVImport = (importedInvitees: any[]) => {
-    setInvitees(importedInvitees);
-    handleStepChange("template");
-  };
-
-  const handleTemplateCreate = (newTemplate: any) => {
-    setTemplate(newTemplate);
-    handleStepChange("preview");
-  };
-
-  const handlePreviewNext = () => {
-    handleStepChange("send");
-  };
-
-  const handleSendComplete = () => {
-    handleStepChange("done");
-  };
-
   return (
-    <div className="app">
-      <Header />
-
-      <main className="container">
-        {/* Configuration errors */}
-        {googleConfig.errors.length > 0 && (
-          <div className="alert alert-error">
-            <span>⚠️</span>
-            <div>
-              <strong>Configuration Error:</strong>
-              <p>{googleConfig.errors.join(", ")}</p>
-              <p style={{ fontSize: "0.85rem", marginBottom: 0 }}>
-                Please set up your Google OAuth credentials in the environment
-                variables.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Auth errors */}
-        {authError && (
-          <div className="alert alert-error">
-            <span>❌</span>
-            <div>
-              <strong>Authentication Error:</strong>
-              <p>{authError}</p>
-            </div>
-          </div>
-        )}
-
-        {/* Step indicator */}
-        <div className="step-indicator">
-          <StepIndicatorDot
-            step={1}
-            label="Sign In"
-            active={currentStep === "auth"}
-            completed={isAuth}
-            onClick={() => handleStepChange("auth")}
-          />
-          <StepIndicatorLine completed={isAuth} />
-
-          <StepIndicatorDot
-            step={2}
-            label="Import CSV"
-            active={currentStep === "import"}
-            completed={invitees.length > 0}
-            disabled={!canProceedFromAuth}
-            onClick={() => canProceedFromAuth && handleStepChange("import")}
-          />
-          <StepIndicatorLine completed={invitees.length > 0} />
-
-          <StepIndicatorDot
-            step={3}
-            label="Create Template"
-            active={currentStep === "template"}
-            completed={template !== null}
-            disabled={!canProceedFromImport}
-            onClick={() => canProceedFromImport && handleStepChange("template")}
-          />
-          <StepIndicatorLine completed={template !== null} />
-
-          <StepIndicatorDot
-            step={4}
-            label="Preview & Send"
-            active={currentStep === "preview" || currentStep === "send"}
-            completed={campaign?.status === "completed"}
-            disabled={!canProceedFromTemplate}
-            onClick={() =>
-              canProceedFromTemplate && handleStepChange("preview")
-            }
-          />
-        </div>
-
-        {/* Content sections */}
-        <div className="step-content">
-          {currentStep === "auth" && (
-            <AuthSection
-              isAuthenticated={isAuth}
-              onSuccess={handleAuthSuccess}
-            />
-          )}
-
-          {currentStep === "import" && (
-            <CSVUploader onImport={handleCSVImport} />
-          )}
-
-          {currentStep === "template" && (
-            <TemplateEditor
-              invitees={invitees}
-              onTemplateCreate={handleTemplateCreate}
-            />
-          )}
-
-          {currentStep === "preview" && (
-            <InvitePreview
-              template={template!}
-              invitees={invitees}
-              onNext={handlePreviewNext}
-            />
-          )}
-
-          {currentStep === "send" && (
-            <BulkSendForm
-              template={template!}
-              invitees={invitees}
-              onComplete={handleSendComplete}
-            />
-          )}
-
-          {currentStep === "done" && (
-            <CompletionSection
-              campaign={campaign}
-              onStartOver={() => handleStepChange("auth")}
-            />
-          )}
-        </div>
-      </main>
-    </div>
+    <Routes>
+      <Route path="/" element={<Navigate to="/campaigns" replace />} />
+      <Route element={<Shell />}>
+        <Route path="/campaigns"     element={<CampaignsList />} />
+        <Route path="/campaigns/new" element={<CampaignFlow />} />
+        <Route path="/templates"           element={<TemplatesList />} />
+        <Route path="/templates/new"       element={<TemplateForm />} />
+        <Route path="/templates/:id/edit"  element={<TemplateForm />} />
+      </Route>
+    </Routes>
   );
 }
-
-// Sub-components
-
-function AuthSection({
-  isAuthenticated,
-  onSuccess,
-}: {
-  isAuthenticated: boolean;
-  onSuccess: () => void;
-}) {
-  if (isAuthenticated) {
-    return (
-      <div className="card">
-        <h2>✓ Signed in with Google</h2>
-        <p>Your calendar is ready to receive invitations.</p>
-        <p style={{ fontSize: "0.9rem", color: "var(--color-text-muted)" }}>
-          <strong>Privacy note:</strong> Your data stays on your device. We
-          never store your calendar or invitee information.
-        </p>
-        <button className="btn btn-primary" onClick={onSuccess}>
-          Continue to Import CSV →
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="card">
-      <h2>Sign in with Google</h2>
-      <p>
-        Connect your Google Calendar to send bulk invitations. Your data never
-        leaves your device.
-      </p>
-      <a href={getGoogleAuthURL(window.location.origin)} className="btn btn-primary">
-        Sign in with Google
-      </a>
-    </div>
-  );
-}
-
-function StepIndicatorDot({
-  step,
-  label,
-  active,
-  completed,
-  disabled,
-  onClick,
-}: {
-  step: number;
-  label: string;
-  active: boolean;
-  completed: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={`step-dot ${active ? "active" : ""} ${
-        completed ? "completed" : ""
-      } ${disabled ? "disabled" : ""}`}
-      onClick={onClick}
-      disabled={disabled}
-      title={label}
-    >
-      {completed ? "✓" : step}
-      <span className="step-label">{label}</span>
-    </button>
-  );
-}
-
-function StepIndicatorLine({ completed }: { completed: boolean }) {
-  return (
-    <div
-      className={`step-line ${completed ? "completed" : ""}`}
-      style={{ flexGrow: 1 }}
-    ></div>
-  );
-}
-
-function CompletionSection({
-  campaign,
-  onStartOver,
-}: {
-  campaign: any;
-  onStartOver: () => void;
-}) {
-  return (
-    <div className="card" style={{ textAlign: "center" }}>
-      <h2>✓ Campaign Completed</h2>
-      {campaign && (
-        <div className="campaign-summary">
-          <div className="summary-stat">
-            <span className="stat-value" style={{ color: "#10b981" }}>
-              {campaign.successCount}
-            </span>
-            <span className="stat-label">Invitations Sent</span>
-          </div>
-          {campaign.failureCount > 0 && (
-            <div className="summary-stat">
-              <span className="stat-value" style={{ color: "#ef4444" }}>
-                {campaign.failureCount}
-              </span>
-              <span className="stat-label">Failed</span>
-            </div>
-          )}
-        </div>
-      )}
-      <button className="btn btn-primary" onClick={onStartOver}>
-        Send Another Campaign
-      </button>
-    </div>
-  );
-}
-
-// Styles for this component
-const styles = `
-  .app {
-    min-height: 100vh;
-    padding-bottom: 2rem;
-  }
-
-  .step-indicator {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    margin: 2rem 0 3rem;
-    padding: 1.5rem;
-    background-color: var(--color-bg-secondary);
-    border-radius: var(--radius-lg);
-  }
-
-  .step-dot {
-    width: 50px;
-    height: 50px;
-    border-radius: 50%;
-    background-color: var(--color-bg-tertiary);
-    border: 2px solid var(--color-border);
-    color: var(--color-text-secondary);
-    font-weight: 600;
-    font-size: 1rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-    transition: all var(--transition-normal);
-  }
-
-  .step-dot.active {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
-    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.1);
-  }
-
-  .step-dot.completed {
-    background-color: var(--color-accent);
-    border-color: var(--color-accent);
-    color: white;
-  }
-
-  .step-dot.disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .step-label {
-    position: absolute;
-    top: 100%;
-    font-size: 0.75rem;
-    color: var(--color-text-secondary);
-    white-space: nowrap;
-    margin-top: 0.5rem;
-  }
-
-  .step-line {
-    height: 2px;
-    background-color: var(--color-border);
-    transition: background-color var(--transition-normal);
-  }
-
-  .step-line.completed {
-    background-color: var(--color-accent);
-  }
-
-  .step-content {
-    animation: fadeIn 300ms ease-in-out;
-  }
-
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-      transform: translateY(10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .campaign-summary {
-    display: flex;
-    justify-content: center;
-    gap: 3rem;
-    margin: 2rem 0;
-  }
-
-  .summary-stat {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-
-  .stat-value {
-    font-size: 2.5rem;
-    font-weight: 700;
-  }
-
-  .stat-label {
-    font-size: 0.9rem;
-    color: var(--color-text-secondary);
-    margin-top: 0.5rem;
-  }
-`;
-
-// Inject styles
-const styleElement = document.createElement("style");
-styleElement.textContent = styles;
-document.head.appendChild(styleElement);
