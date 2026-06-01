@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAppContext } from "./App";
+import { EventPreview, TIMEZONES } from "./EventPreview";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -26,23 +27,6 @@ export interface Template {
 export type Templates = Record<string, Template>;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-
-const TIMEZONES = [
-  { value: "UTC",                  label: "UTC" },
-  { value: "America/New_York",     label: "Eastern Time (ET)" },
-  { value: "America/Chicago",      label: "Central Time (CT)" },
-  { value: "America/Denver",       label: "Mountain Time (MT)" },
-  { value: "America/Los_Angeles",  label: "Pacific Time (PT)" },
-  { value: "America/Sao_Paulo",    label: "Brasília Time (BRT)" },
-  { value: "Europe/London",        label: "London (GMT/BST)" },
-  { value: "Europe/Paris",         label: "Paris (CET/CEST)" },
-  { value: "Europe/Berlin",        label: "Berlin (CET/CEST)" },
-  { value: "Asia/Dubai",           label: "Dubai (GST)" },
-  { value: "Asia/Kolkata",         label: "India (IST)" },
-  { value: "Asia/Singapore",       label: "Singapore (SGT)" },
-  { value: "Asia/Tokyo",           label: "Tokyo (JST)" },
-  { value: "Australia/Sydney",     label: "Sydney (AEST/AEDT)" },
-];
 
 const DEFAULT_CONTENT = "Hello {recipientName},\n\nI'd like to invite you to {meetingType}.\n\nLooking forward to meeting you!\n\nBest regards,\n{senderName}";
 
@@ -76,40 +60,9 @@ function htmlToText(el: HTMLElement): string {
   return result;
 }
 
-function applyVariables(text: string, variables: Variable[]): string {
-  let result = text;
-  variables.forEach(v => {
-    result = result.replace(
-      new RegExp("\\{" + v.name + "\\}", "g"),
-      v.default || "{" + v.name + "}"
-    );
-  });
-  return result;
-}
-
-function formatTime(t: string): string {
-  const [h, m] = t.split(":").map(Number);
-  const ampm = h >= 12 ? "PM" : "AM";
-  return `${h % 12 || 12}:${m.toString().padStart(2, "0")} ${ampm}`;
-}
-
-function formatDateLine(date: string, startTime: string, endTime: string): string {
-  const parts: string[] = [];
-  if (date) {
-    const d = new Date(date + "T12:00:00");
-    parts.push(d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }));
-  }
-  if (startTime) {
-    const t = endTime ? `${formatTime(startTime)} – ${formatTime(endTime)}` : formatTime(startTime);
-    parts.push(t);
-  }
-  return parts.join(" · ");
-}
-
 // ─── Preview modal ────────────────────────────────────────────────────────────
 
 function PreviewModal({ template, onClose }: { template: Template; onClose: () => void }) {
-  const dateLine = formatDateLine(template.date ?? "", template.startTime ?? "", template.endTime ?? "");
   return (
     <div className="modal-backdrop open" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
@@ -118,13 +71,6 @@ function PreviewModal({ template, onClose }: { template: Template; onClose: () =
           <div className="modal-desc">{template.variables.length} variable{template.variables.length !== 1 ? "s" : ""}</div>
         </div>
         <div className="modal-body">
-          <div className="event-preview-card">
-            <div className="event-preview-title">{template.eventTitle || <span style={{ color: "var(--tx3)" }}>No event title</span>}</div>
-            {dateLine && <div className="event-preview-meta">📅 {dateLine}</div>}
-            {template.timezone && <div className="event-preview-meta">🌐 {TIMEZONES.find(tz => tz.value === template.timezone)?.label ?? template.timezone}</div>}
-            {template.location && <div className="event-preview-meta">📍 {template.location}</div>}
-            {template.addMeet && <div className="event-preview-meet">🎥 Google Meet video conferencing</div>}
-          </div>
           {template.variables.length > 0 && (
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 13, color: "var(--tx2)", marginBottom: 8 }}><strong>Variables:</strong></div>
@@ -135,8 +81,7 @@ function PreviewModal({ template, onClose }: { template: Template; onClose: () =
               </div>
             </div>
           )}
-          <div style={{ fontSize: 13, color: "var(--tx2)", marginBottom: 8 }}><strong>Description:</strong></div>
-          <div className="preview-box preview-box-rich" dangerouslySetInnerHTML={{ __html: template.content }} />
+          <EventPreview template={template} />
         </div>
         <div className="modal-footer">
           <button className="btn" onClick={onClose}>Close</button>
@@ -341,13 +286,15 @@ export function TemplateForm() {
     navigate("/templates");
   }
 
-  // ── Live preview values ──
+  // ── Live draft template for preview ──
 
-  const previewTitle    = applyVariables(eventTitle, variables);
-  const previewLocation = applyVariables(location,   variables);
-  const previewHtml     = applyVariables(editorHtml, variables);
-  const dateLine        = formatDateLine(date, startTime, endTime);
-  const tzLabel         = TIMEZONES.find(tz => tz.value === timezone)?.label ?? timezone;
+  // Build a complete Template object from current form state so EventPreview
+  // can render it identically to how the saved template will look.
+  const liveTemplate: Template = {
+    name: tplName, variables, content: editorHtml,
+    eventTitle, date, startTime, endTime, timezone, location, addMeet,
+  };
+  const defaultValues = Object.fromEntries(variables.map(v => [v.name, v.default ?? ""]));
 
   // ── Render ──
 
@@ -537,23 +484,7 @@ export function TemplateForm() {
       {/* ── RIGHT: live preview (sticky) ── */}
       <div style={{ position: "sticky", top: 24 }}>
         <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 14, color: "var(--tx)" }}>Live preview</div>
-
-        <div className="event-preview-card">
-          <div className="event-preview-title">
-            {previewTitle || <span style={{ color: "var(--tx3)", fontWeight: 400 }}>Event title…</span>}
-          </div>
-          {dateLine && <div className="event-preview-meta">📅 {dateLine}</div>}
-          {timezone && <div className="event-preview-meta">🌐 {tzLabel}</div>}
-          {previewLocation && <div className="event-preview-meta">📍 {previewLocation}</div>}
-          {addMeet && <div className="event-preview-meet">🎥 Google Meet video conferencing</div>}
-        </div>
-
-        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--tx2)", marginBottom: 8 }}>Description</div>
-        <div
-          className="preview-box preview-box-rich"
-          style={{ minHeight: 160 }}
-          dangerouslySetInnerHTML={{ __html: previewHtml || "&nbsp;" }}
-        />
+        <EventPreview template={liveTemplate} values={defaultValues} />
       </div>
 
     </div>

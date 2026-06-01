@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppContext } from "./App";
+import { EventPreview } from "./EventPreview";
 import type { Variable } from "./TemplatesSection";
 
 export interface Campaign {
@@ -179,16 +180,6 @@ export function CampaignFlow() {
 
   function setMapping(ri: number, varName: string, value: string) {
     setMappings(prev => ({ ...prev, [ri]: { ...(prev[ri] ?? {}), [varName]: value } }));
-  }
-
-  function getRenderedHtml(ri: number): string {
-    if (!selectedTemplate) return "";
-    let html = selectedTemplate.content;
-    selectedTemplate.variables.forEach(v => {
-      const val = mappings[ri]?.[v.name] || v.default || `{${v.name}}`;
-      html = html.replace(new RegExp("\\{" + v.name + "\\}", "g"), val);
-    });
-    return html;
   }
 
   function startCampaign() {
@@ -378,17 +369,23 @@ export function CampaignFlow() {
               </select>
             </div>
 
-            {previewIdx !== "" && (
-              <div>
-                <div style={{ fontSize: 13, color: "var(--tx3)", marginBottom: 8 }}>
-                  To: <strong style={{ color: "var(--tx)" }}>{recipients[parseInt(previewIdx)]}</strong>
+            {previewIdx !== "" && (() => {
+              const ri = parseInt(previewIdx);
+              const values = Object.fromEntries(
+                selectedTemplate.variables.map(v => [
+                  v.name,
+                  mappings[ri]?.[v.name] || v.default || "",
+                ])
+              );
+              return (
+                <div>
+                  <div style={{ fontSize: 13, color: "var(--tx3)", marginBottom: 12 }}>
+                    To: <strong style={{ color: "var(--tx)" }}>{recipients[ri]}</strong>
+                  </div>
+                  <EventPreview template={selectedTemplate} values={values} />
                 </div>
-                <div
-                  className="preview-box preview-box-rich"
-                  dangerouslySetInnerHTML={{ __html: getRenderedHtml(parseInt(previewIdx)) }}
-                />
-              </div>
-            )}
+              );
+            })()}
 
             <div className="button-group">
               <button className="btn" onClick={() => setStep(3)}>← Back</button>
