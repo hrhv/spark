@@ -1,0 +1,30 @@
+{
+  "name": "bulk-invite",
+  "version": "0.1.0",
+  "description": "Privacy-first, open-source bulk Google Calendar invite tool",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "lint": "tsc --noEmit",
+    "type-check": "tsc --strict --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "google-auth-library": "^10.6.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.4",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.15",
+    "vitest": "^4.1.7"
+  }
+}
