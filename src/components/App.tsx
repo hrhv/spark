@@ -53,16 +53,259 @@ function loadKnownEmails(): string[] {
   catch { return []; }
 }
 
+// ─── Full-data export / import ───────────────────────────────────────────────
+
+export interface SparkExport {
+  version: 1;
+  exportedAt: string;
+  templates: Templates;
+  campaigns: Campaign[];
+  knownEmails: string[];
+}
+
+type ValidationResult =
+  | { valid: true;  data: SparkExport }
+  | { valid: false; error: string };
+
+function validateSparkExport(raw: unknown): ValidationResult {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw))
+    return { valid: false, error: "File is not a valid JSON object." };
+  const d = raw as Record<string, unknown>;
+  if (d.version !== 1)
+    return { valid: false, error: `Unsupported version "${d.version}". Expected 1.` };
+  if (typeof d.exportedAt !== "string")
+    return { valid: false, error: "Missing exportedAt field." };
+  if (!d.templates || typeof d.templates !== "object" || Array.isArray(d.templates))
+    return { valid: false, error: "Invalid templates field." };
+  for (const [id, t] of Object.entries(d.templates as Record<string, unknown>)) {
+    if (!t || typeof t !== "object" || Array.isArray(t))
+      return { valid: false, error: `Template "${id}" is malformed.` };
+    const tpl = t as Record<string, unknown>;
+    if (typeof tpl.name    !== "string") return { valid: false, error: `Template "${id}" is missing a name.` };
+    if (typeof tpl.content !== "string") return { valid: false, error: `Template "${id}" is missing content.` };
+    if (!Array.isArray(tpl.variables))   return { valid: false, error: `Template "${id}" has invalid variables.` };
+  }
+  if (!Array.isArray(d.campaigns))
+    return { valid: false, error: "Invalid campaigns field." };
+  for (let i = 0; i < (d.campaigns as unknown[]).length; i++) {
+    const c = (d.campaigns as unknown[])[i];
+    if (!c || typeof c !== "object" || Array.isArray(c))
+      return { valid: false, error: `Campaign ${i} is malformed.` };
+    const cam = c as Record<string, unknown>;
+    if (typeof cam.templateName !== "string") return { valid: false, error: `Campaign ${i} is missing templateName.` };
+    if (!Array.isArray(cam.recipients))       return { valid: false, error: `Campaign ${i} has invalid recipients.` };
+  }
+  if (d.knownEmails !== undefined && !Array.isArray(d.knownEmails))
+    return { valid: false, error: "Invalid knownEmails field." };
+  return { valid: true, data: raw as SparkExport };
+}
+
 // ─── Permissions modal ────────────────────────────────────────────────────────
 
-function PermissionsModal({ onClose }: { onClose: () => void }) {
-  const { user, grantedScopes, logout } = useAuth();
+interface PermissionsModalProps {
+  onClose: () => void;
+  savedTemplates: Templates;
+  campaigns: Campaign[];
+  knownEmails: string[];
+  onExport: () => void;
+  onMerge: (data: SparkExport) => void;
+  onReplace: (data: SparkExport) => void;
+}
 
-  function handleLogout() {
-    logout();
+function PermissionsModal({ onClose, savedTemplates, campaigns, knownEmails, onExport, onMerge, onReplace }: PermissionsModalProps) {
+  const { user, grantedScopes, logout } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [pendingImport, setPendingImport] = useState<SparkExport | null>(null);
+  const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
+  const [showReplaceConfirm, setShowReplaceConfirm] = useState(false);
+  const [importError, setImportError] = useState("");
+
+  function handleLogout() { logout(); onClose(); }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setImportError("");
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const result = validateSparkExport(JSON.parse(reader.result as string));
+        if (!result.valid) { setImportError(result.error); return; }
+        setPendingImport(result.data);
+        setImportMode("merge");
+      } catch {
+        setImportError("Could not parse the selected file as JSON.");
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function confirmImport() {
+    if (!pendingImport) return;
+    if (importMode === "replace") { setShowReplaceConfirm(true); return; }
+    onMerge(pendingImport);
+    setPendingImport(null);
     onClose();
   }
 
+  function confirmReplace() {
+    if (!pendingImport) return;
+    onReplace(pendingImport);
+    setPendingImport(null);
+    setShowReplaceConfirm(false);
+    onClose();
+  }
+
+  const tplEntries  = Object.entries(savedTemplates);
+  const tplCount    = tplEntries.length;
+  const campCount   = campaigns.length;
+  const emailCount  = knownEmails.length;
+
+  // ── Replace confirmation modal ──
+  if (showReplaceConfirm) {
+    return (
+      <div className="modal-backdrop open">
+        <div className="modal">
+          <div className="modal-header">
+            <div className="modal-title">Replace all data?</div>
+            <div className="modal-desc" style={{ color: "var(--red)" }}>This action is permanent and cannot be undone.</div>
+          </div>
+          <div className="modal-body">
+            <div className="import-warning-box">
+              <div className="import-warning-icon">⚠</div>
+              <div>
+                <div style={{ fontWeight: 500, marginBottom: 6 }}>The following will be permanently deleted:</div>
+                <ul className="import-warning-list">
+                  <li>{tplCount} template{tplCount !== 1 ? "s" : ""}</li>
+                  <li>{campCount} campaign{campCount !== 1 ? "s" : ""}</li>
+                  <li>{emailCount} known email address{emailCount !== 1 ? "es" : ""}</li>
+                </ul>
+                <div style={{ marginTop: 8, fontSize: 13, color: "var(--tx3)" }}>
+                  They will be replaced with the {Object.keys(pendingImport?.templates ?? {}).length} templates,{" "}
+                  {pendingImport?.campaigns.length ?? 0} campaigns, and{" "}
+                  {pendingImport?.knownEmails?.length ?? 0} emails from the import file.
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn" onClick={() => setShowReplaceConfirm(false)}>Cancel</button>
+            <button className="btn btn-danger" onClick={confirmReplace}>Replace all data</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Import preview modal ──
+  if (pendingImport) {
+    const impTpls  = Object.entries(pendingImport.templates);
+    const impCamps = pendingImport.campaigns;
+    const impEmails = pendingImport.knownEmails ?? [];
+    return (
+      <div className="modal-backdrop open" onClick={e => e.target === e.currentTarget && setPendingImport(null)}>
+        <div className="modal modal-lg">
+          <div className="modal-header">
+            <div className="modal-title">Import preview</div>
+            <div className="modal-desc">
+              Exported {new Date(pendingImport.exportedAt).toLocaleString()}
+            </div>
+          </div>
+          <div className="modal-body">
+
+            {/* Templates */}
+            <div className="import-section">
+              <div className="import-section-header">
+                <span className="import-section-title">Templates</span>
+                <span className="import-section-count">{impTpls.length}</span>
+              </div>
+              {impTpls.length > 0 && (
+                <div className="import-item-list">
+                  {impTpls.slice(0, 5).map(([id, tpl]) => (
+                    <div key={id} className="import-item">{tpl.name}</div>
+                  ))}
+                  {impTpls.length > 5 && (
+                    <div className="import-item import-item-more">+{impTpls.length - 5} more</div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Campaigns */}
+            <div className="import-section">
+              <div className="import-section-header">
+                <span className="import-section-title">Campaigns</span>
+                <span className="import-section-count">{impCamps.length}</span>
+              </div>
+              {impCamps.length > 0 && (
+                <div className="import-item-list">
+                  {impCamps.slice(0, 5).map((c, i) => (
+                    <div key={i} className="import-item">
+                      {c.templateName || "Untitled"}
+                      <span style={{ color: "var(--tx3)", marginLeft: 6 }}>
+                        · {c.recipients?.length ?? 0} recipients
+                        · {c.status === "sent" ? "Sent" : `Draft · Step ${c.step ?? 1}`}
+                      </span>
+                    </div>
+                  ))}
+                  {impCamps.length > 5 && (
+                    <div className="import-item import-item-more">+{impCamps.length - 5} more</div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Known emails */}
+            <div className="import-section">
+              <div className="import-section-header">
+                <span className="import-section-title">Known emails</span>
+                <span className="import-section-count">{impEmails.length}</span>
+              </div>
+            </div>
+
+            {/* Import mode */}
+            <div style={{ height: 1, background: "var(--bd)", margin: "18px 0" }} />
+            <div style={{ fontSize: 13, fontWeight: 500, color: "var(--tx2)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              Import mode
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <label className="import-mode-option">
+                <input type="radio" name="importMode" value="merge" checked={importMode === "merge"} onChange={() => setImportMode("merge")} />
+                <div>
+                  <div style={{ fontWeight: 500, fontSize: 14 }}>Merge with existing data</div>
+                  <div style={{ fontSize: 12, color: "var(--tx3)", marginTop: 2 }}>
+                    All imported items are added alongside your current data. Templates and campaigns receive new IDs.
+                  </div>
+                </div>
+              </label>
+              <label className="import-mode-option">
+                <input type="radio" name="importMode" value="replace" checked={importMode === "replace"} onChange={() => setImportMode("replace")} />
+                <div>
+                  <div style={{ fontWeight: 500, fontSize: 14 }}>Replace all existing data</div>
+                  <div style={{ fontSize: 12, color: "var(--red)", marginTop: 2 }}>
+                    ⚠ Your current {tplCount} template{tplCount !== 1 ? "s" : ""}, {campCount} campaign{campCount !== 1 ? "s" : ""}, and {emailCount} known email{emailCount !== 1 ? "s" : ""} will be permanently deleted.
+                  </div>
+                </div>
+              </label>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn" onClick={() => setPendingImport(null)}>Cancel</button>
+            <button
+              className={`btn ${importMode === "replace" ? "btn-danger" : "btn-primary"}`}
+              onClick={confirmImport}
+            >
+              {importMode === "replace" ? "Replace data…" : "Import"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Main permissions modal ──
   return (
     <div className="modal-backdrop open" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
@@ -72,7 +315,6 @@ function PermissionsModal({ onClose }: { onClose: () => void }) {
         </div>
         <div className="modal-body">
 
-          {/* User profile */}
           {user && (
             <div className="perm-profile">
               <img src={user.picture} alt={user.name} className="perm-avatar" referrerPolicy="no-referrer" />
@@ -90,10 +332,7 @@ function PermissionsModal({ onClose }: { onClose: () => void }) {
 
           <div style={{ height: 1, background: "var(--bd)", margin: "18px 0" }} />
 
-          {/* Permissions */}
-          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--tx2)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-            Permissions
-          </div>
+          <div className="perm-section-label">Permissions</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {REQUESTED_SCOPES.map(scope => {
               const meta    = SCOPE_META[scope];
@@ -112,6 +351,23 @@ function PermissionsModal({ onClose }: { onClose: () => void }) {
               );
             })}
           </div>
+
+          <div style={{ height: 1, background: "var(--bd)", margin: "18px 0" }} />
+
+          <div className="perm-section-label">Data</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: importError ? 8 : 0 }}>
+            <button className="btn btn-sm" style={{ flex: 1 }} onClick={onExport}>
+              ↓ Export all data
+            </button>
+            <input ref={fileInputRef} type="file" accept=".json" style={{ display: "none" }} onChange={handleFileChange} />
+            <button className="btn btn-sm" style={{ flex: 1 }} onClick={() => { setImportError(""); fileInputRef.current?.click(); }}>
+              ↑ Import data
+            </button>
+          </div>
+          {importError && (
+            <div style={{ fontSize: 12, color: "var(--red)", marginTop: 8, lineHeight: 1.5 }}>{importError}</div>
+          )}
+
         </div>
         <div className="modal-footer">
           <button className="btn btn-danger" onClick={handleLogout}>Sign out</button>
@@ -128,13 +384,23 @@ function Shell() {
   const [savedTemplates, setSavedTemplates] = useState<Templates>(loadTemplates);
   const [campaigns, setCampaigns] = useState<Campaign[]>(loadCampaigns);
   const [knownEmails, setKnownEmails] = useState<string[]>(loadKnownEmails);
+  const [showPerms, setShowPerms] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showToast(message: string, type: "success" | "error") {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ message, type });
+    toastTimer.current = setTimeout(() => setToast(null), 3500);
+  }
+
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
   const updateTemplates = (t: Templates) => {
     setSavedTemplates(t);
     localStorage.setItem("spark-templates", JSON.stringify(t));
   };
 
-  // Upsert by ID — used for both draft autosave and marking a campaign sent.
   const saveCampaign = useCallback((c: Campaign) => {
     setCampaigns(prev => {
       const exists = prev.some(x => x.id === c.id);
@@ -154,11 +420,74 @@ function Shell() {
     });
   };
 
+  function exportAllData() {
+    try {
+      const payload: SparkExport = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        templates: savedTemplates,
+        campaigns,
+        knownEmails,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = `spark-backup-${new Date().toISOString().split("T")[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      const tplCount  = Object.keys(savedTemplates).length;
+      const campCount = campaigns.length;
+      showToast(`Exported ${tplCount} template${tplCount !== 1 ? "s" : ""} and ${campCount} campaign${campCount !== 1 ? "s" : ""}.`, "success");
+    } catch {
+      showToast("Export failed. Please try again.", "error");
+    }
+  }
+
+  function mergeData(data: SparkExport) {
+    const merged = { ...savedTemplates };
+    Object.values(data.templates).forEach(tpl => { merged[uuidv4()] = tpl; });
+    updateTemplates(merged);
+    data.campaigns.forEach(c => saveCampaign({ ...c, id: uuidv4(), timestamp: Date.now() }));
+    addKnownEmails(data.knownEmails ?? []);
+    const tplCount  = Object.keys(data.templates).length;
+    const campCount = data.campaigns.length;
+    showToast(`Merged ${tplCount} template${tplCount !== 1 ? "s" : ""} and ${campCount} campaign${campCount !== 1 ? "s" : ""}.`, "success");
+  }
+
+  function replaceData(data: SparkExport) {
+    updateTemplates(data.templates);
+    setCampaigns(data.campaigns);
+    localStorage.setItem("spark-campaigns", JSON.stringify(data.campaigns));
+    const emails = data.knownEmails ?? [];
+    setKnownEmails(emails);
+    localStorage.setItem("spark-known-emails", JSON.stringify(emails));
+    const tplCount  = Object.keys(data.templates).length;
+    const campCount = data.campaigns.length;
+    showToast(`Replaced with ${tplCount} template${tplCount !== 1 ? "s" : ""} and ${campCount} campaign${campCount !== 1 ? "s" : ""}.`, "success");
+  }
+
   const ctx: AppContext = { savedTemplates, updateTemplates, campaigns, saveCampaign, knownEmails, addKnownEmails };
 
   return (
     <div className="editor">
-      <Sidebar />
+      <Sidebar onOpenPerms={() => setShowPerms(true)} />
+      {showPerms && (
+        <PermissionsModal
+          onClose={() => setShowPerms(false)}
+          savedTemplates={savedTemplates}
+          campaigns={campaigns}
+          knownEmails={knownEmails}
+          onExport={exportAllData}
+          onMerge={mergeData}
+          onReplace={replaceData}
+        />
+      )}
+      {toast && (
+        <div className={`toast toast-${toast.type}`}>
+          {toast.type === "success" ? "✓" : "✕"} {toast.message}
+        </div>
+      )}
       <div className="main">
         <Appbar savedTemplates={savedTemplates} updateTemplates={updateTemplates} campaigns={campaigns} saveCampaign={saveCampaign} />
         <div className="content">
@@ -171,55 +500,49 @@ function Shell() {
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
-function Sidebar() {
+function Sidebar({ onOpenPerms }: { onOpenPerms: () => void }) {
   const { user } = useAuth();
-  const [showPerms, setShowPerms] = useState(false);
 
   return (
-    <>
-      <aside className="rail">
-        <div className="rail-header">
-          <SparkBrand size="sm" />
-        </div>
+    <aside className="rail">
+      <div className="rail-header">
+        <SparkBrand size="sm" />
+      </div>
 
-        <div className="rail-body">
-          <NavLink
-            to="/campaigns"
-            end={false}
-            className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
-          >
-            <div className="nav-icon"><CalendarDays size={16} /></div>
-            <div>Campaigns</div>
-          </NavLink>
-          <NavLink
-            to="/templates"
-            end={false}
-            className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
-          >
-            <div className="nav-icon"><FileText size={16} /></div>
-            <div>Templates</div>
-          </NavLink>
-        </div>
+      <div className="rail-body">
+        <NavLink
+          to="/campaigns"
+          end={false}
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <div className="nav-icon"><CalendarDays size={16} /></div>
+          <div>Campaigns</div>
+        </NavLink>
+        <NavLink
+          to="/templates"
+          end={false}
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <div className="nav-icon"><FileText size={16} /></div>
+          <div>Templates</div>
+        </NavLink>
+      </div>
 
-        {/* User profile — bottom of sidebar */}
-        {user && (
-          <div className="rail-user" onClick={() => setShowPerms(true)}>
-            <img src={user.picture} alt={user.name} className="rail-avatar" referrerPolicy="no-referrer" />
-            <div className="rail-user-info">
-              <div className="rail-user-name">{user.name}</div>
-              <div className="rail-user-email">{user.email}</div>
-              {user.hd && (
-                <span className="org-badge" style={{ marginTop: 5 }}>
-                  {user.hd !== "gmail.com" ? user.hd.split(".")[0].toUpperCase() : "ORGANISATION"}
-                </span>
-              )}
-            </div>
+      {user && (
+        <div className="rail-user" onClick={onOpenPerms}>
+          <img src={user.picture} alt={user.name} className="rail-avatar" referrerPolicy="no-referrer" />
+          <div className="rail-user-info">
+            <div className="rail-user-name">{user.name}</div>
+            <div className="rail-user-email">{user.email}</div>
+            {user.hd && (
+              <span className="org-badge" style={{ marginTop: 5 }}>
+                {user.hd !== "gmail.com" ? user.hd.split(".")[0].toUpperCase() : "ORGANISATION"}
+              </span>
+            )}
           </div>
-        )}
-      </aside>
-
-      {showPerms && <PermissionsModal onClose={() => setShowPerms(false)} />}
-    </>
+        </div>
+      )}
+    </aside>
   );
 }
 
