@@ -217,7 +217,7 @@ export async function createEventForRecipient(
   event: SparkCalendarEventPayload,
   attendeeEmail: string,
   attendeeDisplayName?: string
-): Promise<{ success: boolean; eventId?: string; error?: string }> {
+): Promise<{ success: boolean; eventId?: string; htmlLink?: string; error?: string }> {
   const hasConference = !!event.conferenceData;
   const params = new URLSearchParams({ sendUpdates: "all" });
   if (hasConference) params.set("conferenceDataVersion", "1");
@@ -247,8 +247,8 @@ export async function createEventForRecipient(
       return { success: false, error: message };
     }
 
-    const data = (await response.json()) as { id: string };
-    return { success: true, eventId: data.id };
+    const data = (await response.json()) as { id: string; htmlLink: string };
+    return { success: true, eventId: data.id, htmlLink: data.htmlLink };
   } catch (error) {
     return {
       success: false,

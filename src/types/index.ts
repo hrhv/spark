@@ -181,6 +181,13 @@ export interface CampaignSendError {
   error: string;
 }
 
+/** Stores the Google Calendar identifiers for one successfully-created event. */
+export interface CampaignEventRecord {
+  email: string;
+  eventId: string;
+  htmlLink: string;
+}
+
 export interface Campaign {
   id: string;
   status: "draft" | "sent";
@@ -195,6 +202,8 @@ export interface Campaign {
   successCount?: number;
   failureCount?: number;
   errors?: CampaignSendError[];
+  /** One entry per successfully-created event, in recipient order. */
+  sentEvents?: CampaignEventRecord[];
   /** Draft-only: which wizard step the user is on (1–4). */
   step?: number;
   mappings?: Record<string, Record<string, string>>;

@@ -5,7 +5,7 @@ import { useAppContext } from "./App";
 import { EventPreview } from "./EventPreview";
 import { useAuth } from "../context/AuthContext";
 import { searchDirectoryPeople } from "../utils/directorySearch";
-import type { Variable, Template, DirectoryPerson, Campaign, CampaignSendError, SparkCalendarEventPayload } from "@/types";
+import type { Variable, Template, DirectoryPerson, Campaign, CampaignSendError, CampaignEventRecord, SparkCalendarEventPayload } from "@/types";
 import { RESERVED_VARIABLE_NAMES } from "@/types";
 import { getEffectiveVariables, resolveDirectoryField, DIRECTORY_FIELD_LABELS } from "@utils/templateUtils";
 import type { DirectoryField } from "@utils/templateUtils";
@@ -49,6 +49,20 @@ function extractTemplateTokens(template: Template): string[] {
 const PER_PAGE = 10;
 
 function CampaignDetailModal({ campaign, onClose }: { campaign: Campaign; onClose: () => void }) {
+  const { savedTemplates } = useAppContext();
+  const [previewIdx, setPreviewIdx] = useState(0);
+
+  const template = savedTemplates[campaign.templateId] ?? null;
+
+  // Reconstruct numeric-keyed mappings from the string-keyed stored form.
+  const numericMappings: Record<number, Record<string, string>> = Object.fromEntries(
+    Object.entries(campaign.mappings ?? {}).map(([k, v]) => [Number(k), v])
+  );
+
+  const values = template ? buildRecipientValues(template, previewIdx, numericMappings) : {};
+  const recipientEmail = campaign.recipients[previewIdx] ?? "";
+  const sentEvent = campaign.sentEvents?.find(ev => ev.email === recipientEmail);
+
   return (
     <div className="modal-backdrop open" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal modal-lg">
@@ -57,6 +71,7 @@ function CampaignDetailModal({ campaign, onClose }: { campaign: Campaign; onClos
           <div className="modal-desc">{campaign.sentAt ? `Sent ${campaign.sentAt}` : `Draft · Step ${campaign.step ?? 1} of 4`}</div>
         </div>
         <div className="modal-body">
+          {/* Stats */}
           <div className="stat-grid">
             <div className="stat-card">
               <div className="stat-label">Recipients</div>
@@ -75,6 +90,8 @@ function CampaignDetailModal({ campaign, onClose }: { campaign: Campaign; onClos
               </div>
             )}
           </div>
+
+          {/* Failed invitations */}
           {campaign.errors && campaign.errors.length > 0 && (
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 500, color: "var(--red)", marginBottom: 8 }}>Failed invitations</div>
@@ -85,10 +102,49 @@ function CampaignDetailModal({ campaign, onClose }: { campaign: Campaign; onClos
               ))}
             </div>
           )}
-          <div style={{ fontSize: 14, fontWeight: 500, color: "var(--tx2)", marginBottom: 10 }}>Recipients</div>
-          <div style={{ fontSize: 14, color: "var(--tx2)", lineHeight: 1.9 }}>
-            {campaign.recipients.map((r, i) => <div key={i}>{r}</div>)}
+
+          {/* Recipient selector — same as review step */}
+          <div className="form-group">
+            <label>Preview for</label>
+            <select
+              value={previewIdx}
+              onChange={e => setPreviewIdx(parseInt(e.target.value))}
+            >
+              {campaign.recipients.map((email, i) => (
+                <option key={i} value={i}>{email}</option>
+              ))}
+            </select>
           </div>
+
+          {/* Per-recipient header: email + Open in Google Calendar */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: "var(--tx3)" }}>
+              To: <strong style={{ color: "var(--tx)" }}>{recipientEmail}</strong>
+            </div>
+            {sentEvent ? (
+              <a
+                href={sentEvent.htmlLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-sm btn-primary"
+                style={{ textDecoration: "none" }}
+              >
+                Open in Google Calendar ↗
+              </a>
+            ) : (campaign.failureCount ?? 0) > 0 && campaign.errors?.some(e => e.email === recipientEmail) ? (
+              <span style={{ fontSize: 12, color: "var(--red)" }}>Failed to send</span>
+            ) : null}
+          </div>
+
+          {/* Event preview — same component as review step */}
+          {template
+            ? <EventPreview template={template} values={values} />
+            : (
+              <div className="alert alert-warning">
+                The template <strong>{campaign.templateName}</strong> has been deleted and the preview is unavailable.
+              </div>
+            )
+          }
         </div>
         <div className="modal-footer">
           <button className="btn" onClick={onClose}>Close</button>
@@ -107,9 +163,9 @@ export function CampaignsList() {
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [detail, setDetail] = useState<Campaign | null>(null);
 
-  function handleDelete(id: string) {
-    if (!confirm("Delete this draft campaign?")) return;
-    deleteCampaign(id);
+  function handleDelete(c: Campaign) {
+    if (!confirm(`Delete this campaign? This cannot be undone.`)) return;
+    deleteCampaign(c.id);
   }
 
   const sorted   = [...campaigns].reverse();
@@ -176,9 +232,7 @@ export function CampaignsList() {
                       : <button className="btn btn-sm" onClick={() => setDetail(c)}>View</button>
                     }
                     <button className="btn btn-sm" onClick={() => exportCampaign(c)}>Export</button>
-                    {c.status === "draft" && (
-                      <button className="btn btn-sm btn-danger" onClick={() => handleDelete(c.id)}>Delete</button>
-                    )}
+                    <button className="btn btn-sm btn-danger" onClick={() => handleDelete(c)}>Delete</button>
                   </div>
                 </div>
               ))}
@@ -409,6 +463,7 @@ export function CampaignFlow() {
     let successCount = 0;
     let failureCount = 0;
     const errors: CampaignSendError[] = [];
+    const sentEvents: CampaignEventRecord[] = [];
 
     for (let ri = 0; ri < recipients.length; ri++) {
       const email = recipients[ri];
@@ -428,6 +483,9 @@ export function CampaignFlow() {
       if (result.success) {
         successCount++;
         setSendSuccess(s => s + 1);
+        if (result.eventId && result.htmlLink) {
+          sentEvents.push({ email, eventId: result.eventId, htmlLink: result.htmlLink });
+        }
       } else {
         failureCount++;
         const err: CampaignSendError = { email, error: result.error ?? "Unknown error" };
@@ -451,11 +509,13 @@ export function CampaignFlow() {
       recipientCount: recipients.length,
       recipients,
       variables: selectedTemplate.variables,
+      mappings: mappings as Record<string, Record<string, string>>,
       sentAt: new Date().toLocaleString(),
       timestamp: Date.now(),
       successCount,
       failureCount,
       errors,
+      sentEvents,
     };
     saveCampaign(c);
     addKnownEmails(recipients);
@@ -907,9 +967,59 @@ export function CampaignFlow() {
             </div>
           </div>
 
+          {sentCampaign?.sentEvents && sentCampaign.sentEvents.length > 0 && (
+            <div style={{
+              marginBottom: 24,
+              border: "1px solid var(--bd)",
+              borderRadius: 8,
+              overflow: "hidden",
+            }}>
+              <div style={{
+                padding: "10px 16px",
+                background: "var(--bg2)",
+                fontSize: 12,
+                fontWeight: 600,
+                color: "var(--tx2)",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+                borderBottom: "1px solid var(--bd)",
+              }}>
+                Invitations
+              </div>
+              <div style={{ maxHeight: 260, overflowY: "auto" }}>
+                {sentCampaign.sentEvents.map((ev, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      padding: "9px 16px",
+                      borderBottom: i < sentCampaign.sentEvents!.length - 1 ? "1px solid var(--bd)" : "none",
+                    }}
+                  >
+                    <span style={{ fontSize: 13, color: "var(--tx2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {ev.email}
+                    </span>
+                    <a
+                      href={ev.htmlLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-sm"
+                      style={{ flexShrink: 0, textDecoration: "none" }}
+                    >
+                      Open in Google Calendar ↗
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {sentCampaign?.errors && sentCampaign.errors.length > 0 && (
             <div style={{
-              marginBottom: 28,
+              marginBottom: 24,
               padding: 16,
               background: "var(--bg2)",
               borderRadius: 8,
