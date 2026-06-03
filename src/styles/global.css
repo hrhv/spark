@@ -926,6 +926,18 @@ tr:hover td { background: var(--bg2); }
 }
 
 /* ── Autocomplete dropdown ───────────────────────────────── */
+.draft-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--amber-bg);
+  color: var(--amber-tx);
+  border: 0.5px solid var(--amber-bd);
+  letter-spacing: 0.2px;
+  flex-shrink: 0;
+}
+
 .autocomplete-dropdown {
   position: absolute;
   top: calc(100% + 4px);
@@ -937,7 +949,30 @@ tr:hover td { background: var(--bg2); }
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
   z-index: 200;
   overflow: hidden;
+  animation: dropdown-in 0.12s ease;
 }
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.autocomplete-loading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 14px;
+  font-size: 13px;
+  color: var(--tx3);
+}
+.autocomplete-spinner {
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid var(--bd2);
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: spin 0.55s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 .autocomplete-item {
   display: flex;
   align-items: center;

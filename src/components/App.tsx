@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { v4 as uuidv4 } from "uuid";
 import {
   Routes,
@@ -27,7 +27,7 @@ export interface AppContext {
   savedTemplates: Templates;
   updateTemplates: (t: Templates) => void;
   campaigns: Campaign[];
-  addCampaign: (c: Campaign) => void;
+  saveCampaign: (c: Campaign) => void;
   knownEmails: string[];
   addKnownEmails: (emails: string[]) => void;
 }
@@ -134,13 +134,15 @@ function Shell() {
     localStorage.setItem("spark-templates", JSON.stringify(t));
   };
 
-  const addCampaign = (c: Campaign) => {
+  // Upsert by ID — used for both draft autosave and marking a campaign sent.
+  const saveCampaign = useCallback((c: Campaign) => {
     setCampaigns(prev => {
-      const next = [...prev, c];
+      const exists = prev.some(x => x.id === c.id);
+      const next = exists ? prev.map(x => x.id === c.id ? c : x) : [...prev, c];
       localStorage.setItem("spark-campaigns", JSON.stringify(next));
       return next;
     });
-  };
+  }, []);
 
   const addKnownEmails = (emails: string[]) => {
     setKnownEmails(prev => {
@@ -152,7 +154,7 @@ function Shell() {
     });
   };
 
-  const ctx: AppContext = { savedTemplates, updateTemplates, campaigns, addCampaign, knownEmails, addKnownEmails };
+  const ctx: AppContext = { savedTemplates, updateTemplates, campaigns, saveCampaign, knownEmails, addKnownEmails };
 
   return (
     <div className="editor">
@@ -394,8 +396,9 @@ export default function App() {
       />
       <Route path="/" element={<Navigate to="/campaigns" replace />} />
       <Route element={<RequireAuth><Shell /></RequireAuth>}>
-        <Route path="/campaigns"          element={<CampaignsList />} />
-        <Route path="/campaigns/new"      element={<CampaignFlow />} />
+        <Route path="/campaigns"              element={<CampaignsList />} />
+        <Route path="/campaigns/new"          element={<CampaignFlow />} />
+        <Route path="/campaigns/:id/edit"     element={<CampaignFlow />} />
         <Route path="/templates"          element={<TemplatesList />} />
         <Route path="/templates/new"      element={<TemplateForm />} />
         <Route path="/templates/:id/edit" element={<TemplateForm />} />

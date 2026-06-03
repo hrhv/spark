@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useAppContext } from "./App";
 import { EventPreview } from "./EventPreview";
 import { useAuth } from "../context/AuthContext";
@@ -11,13 +11,20 @@ import { getEffectiveVariables, RESERVED_VARIABLE_NAMES } from "./TemplatesSecti
 
 export interface Campaign {
   id: string;
-  templateName: string;
+  status: "draft" | "sent";
   templateId: string;
+  templateName: string;
   recipientCount: number;
   recipients: string[];
   variables: Variable[];
-  sentAt: string;
   timestamp: number;
+  // Sent-only
+  sentAt?: string;
+  // Draft state — persisted across sessions
+  step?: number;
+  mappings?: Record<string, Record<string, string>>;
+  variableRules?: Record<string, string>;
+  recipientDetails?: Record<string, DirectoryPerson>;
 }
 
 type Mappings = Record<number, Record<string, string>>;
@@ -64,8 +71,8 @@ function CampaignDetailModal({ campaign, onClose }: { campaign: Campaign; onClos
     <div className="modal-backdrop open" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal modal-lg">
         <div className="modal-header">
-          <div className="modal-title">{campaign.templateName}</div>
-          <div className="modal-desc">Sent {campaign.sentAt}</div>
+          <div className="modal-title">{campaign.templateName || "Untitled campaign"}</div>
+          <div className="modal-desc">{campaign.sentAt ? `Sent ${campaign.sentAt}` : `Draft · Step ${campaign.step ?? 1} of 4`}</div>
         </div>
         <div className="modal-body">
           <div className="stat-grid">
@@ -97,6 +104,7 @@ function CampaignDetailModal({ campaign, onClose }: { campaign: Campaign; onClos
 
 export function CampaignsList() {
   const { campaigns } = useAppContext();
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [detail, setDetail] = useState<Campaign | null>(null);
 
@@ -121,12 +129,20 @@ export function CampaignsList() {
               {pageItems.map(c => (
                 <div key={c.id} className="list-item">
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="list-item-title">{c.templateName}</div>
+                    <div className="list-item-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {c.templateName || "Untitled campaign"}
+                      {c.status === "draft" && <span className="draft-badge">Draft</span>}
+                    </div>
                     <div className="list-item-meta">
-                      {c.recipientCount} recipient{c.recipientCount !== 1 ? "s" : ""} · {c.sentAt}
+                      {c.recipientCount} recipient{c.recipientCount !== 1 ? "s" : ""}
+                      {c.status === "sent" && c.sentAt && ` · ${c.sentAt}`}
+                      {c.status === "draft" && ` · Step ${c.step ?? 1} of 4`}
                     </div>
                   </div>
-                  <button className="btn btn-sm" onClick={() => setDetail(c)}>View</button>
+                  {c.status === "draft"
+                    ? <button className="btn btn-sm btn-primary" onClick={() => navigate(`/campaigns/${c.id}/edit`)}>Edit</button>
+                    : <button className="btn btn-sm" onClick={() => setDetail(c)}>View</button>
+                  }
                 </div>
               ))}
               {totalPages > 1 && (
@@ -180,15 +196,34 @@ function StepDots({ step }: { step: number }) {
 // ─── Campaign creation flow ──────────────────────────────────────────────────
 
 export function CampaignFlow() {
-  const { savedTemplates, addCampaign, addKnownEmails } = useAppContext();
+  const { savedTemplates, campaigns, saveCampaign, addKnownEmails } = useAppContext();
   const { user, accessToken, grantedScopes } = useAuth();
   const navigate = useNavigate();
+  const { id: editId } = useParams<{ id?: string }>();
 
-  const [step, setStep] = useState(1);
-  const [selectedTemplateId, setSelectedTemplateId] = useState("");
-  const [recipients, setRecipients] = useState<string[]>([]);
+  // Load existing draft if editing
+  const existingDraft = editId ? campaigns.find(c => c.id === editId && c.status === "draft") : null;
+
+  // Stable draft ID for the lifetime of this component instance
+  const [draftId] = useState(() => editId ?? uuidv4());
+
+  // State initialised from draft (or defaults for new campaigns)
+  const [step, setStep] = useState(existingDraft?.step ?? 1);
+  const [selectedTemplateId, setSelectedTemplateId] = useState(existingDraft?.templateId ?? "");
+  const [recipients, setRecipients] = useState<string[]>(existingDraft?.recipients ?? []);
+  const [mappings, setMappings] = useState<Mappings>(() => {
+    const m = existingDraft?.mappings;
+    if (!m) return {};
+    return Object.fromEntries(Object.entries(m).map(([k, v]) => [Number(k), v]));
+  });
+  const [recipientDetails, setRecipientDetails] = useState<Record<string, DirectoryPerson>>(
+    existingDraft?.recipientDetails ?? {}
+  );
+  const [variableRules, setVariableRules] = useState<Record<string, DirectoryField | "">>(
+    (existingDraft?.variableRules ?? {}) as Record<string, DirectoryField | "">
+  );
+
   const [emailInput, setEmailInput] = useState("");
-  const [mappings, setMappings] = useState<Mappings>({});
   const [previewIdx, setPreviewIdx] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const [sentCampaign, setSentCampaign] = useState<Campaign | null>(null);
@@ -196,31 +231,54 @@ export function CampaignFlow() {
   // Directory autocomplete
   const [suggestions, setSuggestions] = useState<DirectoryPerson[]>([]);
   const [suggestionIdx, setSuggestionIdx] = useState(-1);
+  const [searchLoading, setSearchLoading] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Directory person data keyed by email (populated when user selects from autocomplete)
-  const [recipientDetails, setRecipientDetails] = useState<Record<string, DirectoryPerson>>({});
-
-  // Advanced rules: variable name → directory field (empty string = no rule)
-  const [variableRules, setVariableRules] = useState<Record<string, DirectoryField | "">>({});
+  const saveDraftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const canSearchDirectory =
     Boolean(user?.hd) &&
     Boolean(accessToken) &&
     grantedScopes.includes("https://www.googleapis.com/auth/directory.readonly");
 
+  // Autosave draft on any meaningful state change (debounced for mapping keystrokes).
+  useEffect(() => {
+    if (step > 4) return;
+    if (!selectedTemplateId) return; // don't create a draft until a template is chosen
+    if (saveDraftTimer.current) clearTimeout(saveDraftTimer.current);
+    saveDraftTimer.current = setTimeout(() => {
+      saveCampaign({
+        id: draftId,
+        status: "draft",
+        step,
+        templateId: selectedTemplateId,
+        templateName: savedTemplates[selectedTemplateId]?.name ?? "",
+        recipients,
+        recipientCount: recipients.length,
+        variables: savedTemplates[selectedTemplateId]?.variables ?? [],
+        mappings: mappings as Record<string, Record<string, string>>,
+        variableRules: variableRules as Record<string, string>,
+        recipientDetails,
+        timestamp: Date.now(),
+      });
+    }, 300);
+    return () => { if (saveDraftTimer.current) clearTimeout(saveDraftTimer.current); };
+  }, [step, selectedTemplateId, recipients, mappings, variableRules, recipientDetails, saveCampaign, draftId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current);
     if (!canSearchDirectory || emailInput.length < 2) {
       setSuggestions([]);
       setSuggestionIdx(-1);
+      setSearchLoading(false);
       return;
     }
+    setSearchLoading(true);
     searchTimer.current = setTimeout(async () => {
       const results = await searchDirectoryPeople(emailInput, accessToken!);
       const filtered = results.filter(p => !recipients.includes(p.email));
       setSuggestions(filtered);
       setSuggestionIdx(-1);
+      setSearchLoading(false);
     }, 300);
     return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
   }, [emailInput, canSearchDirectory]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -298,7 +356,8 @@ export function CampaignFlow() {
   function startCampaign() {
     if (!selectedTemplate) return;
     const c: Campaign = {
-      id: uuidv4(),
+      id: draftId,
+      status: "sent",
       templateName: selectedTemplate.name,
       templateId: selectedTemplateId,
       recipientCount: recipients.length,
@@ -307,7 +366,7 @@ export function CampaignFlow() {
       sentAt: new Date().toLocaleString(),
       timestamp: Date.now(),
     };
-    addCampaign(c);
+    saveCampaign(c);
     addKnownEmails(recipients);
     setSentCampaign(c);
     setShowConfirm(false);
@@ -399,9 +458,14 @@ export function CampaignFlow() {
                   <button className="btn btn-primary" onClick={() => addRecipient()} style={{ flexShrink: 0 }}>Add</button>
                 </div>
 
-                {suggestions.length > 0 && (
+                {(searchLoading || suggestions.length > 0) && (
                   <div className="autocomplete-dropdown">
-                    {suggestions.map((person, i) => (
+                    {searchLoading ? (
+                      <div className="autocomplete-loading">
+                        <div className="autocomplete-spinner" />
+                        Searching directory…
+                      </div>
+                    ) : suggestions.map((person, i) => (
                       <div
                         key={person.email}
                         className={`autocomplete-item${i === suggestionIdx ? " active" : ""}`}
@@ -419,6 +483,7 @@ export function CampaignFlow() {
                     ))}
                   </div>
                 )}
+
               </div>
             </div>
 
