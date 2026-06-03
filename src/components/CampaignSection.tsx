@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { useNavigate } from "react-router-dom";
 import { useAppContext } from "./App";
 import { EventPreview } from "./EventPreview";
+import { useAuth } from "../context/AuthContext";
+import { searchDirectoryPeople } from "../utils/directorySearch";
+import type { DirectoryPerson } from "../utils/directorySearch";
 import type { Variable } from "./TemplatesSection";
 
 export interface Campaign {
@@ -17,6 +20,26 @@ export interface Campaign {
 }
 
 type Mappings = Record<number, Record<string, string>>;
+
+// ─── Directory field helpers ─────────────────────────────────────────────────
+
+type DirectoryField = "fullName" | "firstName" | "lastName" | "email";
+
+const DIRECTORY_FIELD_LABELS: Record<DirectoryField, string> = {
+  fullName:  "Full name",
+  firstName: "First name",
+  lastName:  "Last name",
+  email:     "Email",
+};
+
+function resolveDirectoryField(person: DirectoryPerson, field: DirectoryField): string {
+  switch (field) {
+    case "fullName":  return person.name;
+    case "firstName": return person.name.split(" ")[0] ?? "";
+    case "lastName":  return person.name.split(" ").slice(1).join(" ");
+    case "email":     return person.email;
+  }
+}
 
 // ─── Campaign list ───────────────────────────────────────────────────────────
 
@@ -143,7 +166,8 @@ function StepDots({ step }: { step: number }) {
 // ─── Campaign creation flow ──────────────────────────────────────────────────
 
 export function CampaignFlow() {
-  const { savedTemplates, addCampaign } = useAppContext();
+  const { savedTemplates, addCampaign, addKnownEmails } = useAppContext();
+  const { user, accessToken, grantedScopes } = useAuth();
   const navigate = useNavigate();
 
   const [step, setStep] = useState(1);
@@ -155,19 +179,93 @@ export function CampaignFlow() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [sentCampaign, setSentCampaign] = useState<Campaign | null>(null);
 
+  // Directory autocomplete
+  const [suggestions, setSuggestions] = useState<DirectoryPerson[]>([]);
+  const [suggestionIdx, setSuggestionIdx] = useState(-1);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Directory person data keyed by email (populated when user selects from autocomplete)
+  const [recipientDetails, setRecipientDetails] = useState<Record<string, DirectoryPerson>>({});
+
+  // Advanced rules: variable name → directory field (empty string = no rule)
+  const [variableRules, setVariableRules] = useState<Record<string, DirectoryField | "">>({});
+
+  const canSearchDirectory =
+    Boolean(user?.hd) &&
+    Boolean(accessToken) &&
+    grantedScopes.includes("https://www.googleapis.com/auth/directory.readonly");
+
+  useEffect(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (!canSearchDirectory || emailInput.length < 2) {
+      setSuggestions([]);
+      setSuggestionIdx(-1);
+      return;
+    }
+    searchTimer.current = setTimeout(async () => {
+      const results = await searchDirectoryPeople(emailInput, accessToken!);
+      const filtered = results.filter(p => !recipients.includes(p.email));
+      setSuggestions(filtered);
+      setSuggestionIdx(-1);
+    }, 300);
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+  }, [emailInput, canSearchDirectory]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When rules change, recompute auto-filled cells for every recipient with known person data.
+  useEffect(() => {
+    setMappings(prev => {
+      const next = { ...prev };
+      recipients.forEach((email, ri) => {
+        const person = recipientDetails[email];
+        if (!person) return;
+        Object.entries(variableRules).forEach(([varName, field]) => {
+          if (!field) return;
+          next[ri] = { ...(next[ri] ?? {}), [varName]: resolveDirectoryField(person, field) };
+        });
+      });
+      return next;
+    });
+  }, [variableRules]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const templateEntries = Object.entries(savedTemplates);
   const selectedTemplate = selectedTemplateId ? savedTemplates[selectedTemplateId] : null;
 
-  function addRecipient() {
-    const email = emailInput.trim();
+  function addRecipient(emailOverride?: string) {
+    const email = (emailOverride ?? emailInput).trim();
     if (!email || !email.includes("@")) { alert("Valid email required"); return; }
     if (recipients.includes(email)) { alert("Recipient already added"); return; }
     setRecipients(prev => [...prev, email]);
     setEmailInput("");
+    setSuggestions([]);
+    setSuggestionIdx(-1);
+  }
+
+  function selectSuggestion(person: DirectoryPerson) {
+    const email = person.email.trim();
+    if (!email || recipients.includes(email)) return;
+    const newIdx = recipients.length;
+    setRecipients(prev => [...prev, email]);
+    setRecipientDetails(prev => ({ ...prev, [email]: person }));
+    setEmailInput("");
+    setSuggestions([]);
+    setSuggestionIdx(-1);
+    // Apply any already-configured rules for this new recipient immediately
+    const activeRules = Object.entries(variableRules).filter(([, f]) => f);
+    if (activeRules.length > 0) {
+      setMappings(prev => {
+        const row = { ...(prev[newIdx] ?? {}) };
+        activeRules.forEach(([varName, field]) => {
+          row[varName] = resolveDirectoryField(person, field as DirectoryField);
+        });
+        return { ...prev, [newIdx]: row };
+      });
+    }
   }
 
   function removeRecipient(idx: number) {
+    const email = recipients[idx];
     setRecipients(prev => prev.filter((_, i) => i !== idx));
+    setRecipientDetails(prev => { const n = { ...prev }; delete n[email]; return n; });
     setMappings(prev => {
       const updated: Mappings = {};
       Object.keys(prev).forEach(k => {
@@ -196,6 +294,7 @@ export function CampaignFlow() {
       timestamp: Date.now(),
     };
     addCampaign(c);
+    addKnownEmails(recipients);
     setSentCampaign(c);
     setShowConfirm(false);
     setStep(5);
@@ -254,18 +353,61 @@ export function CampaignFlow() {
           <div className="panel-body">
             <div className="form-group">
               <label>Email address</label>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  type="email"
-                  placeholder="name@company.com"
-                  value={emailInput}
-                  onChange={e => setEmailInput(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && addRecipient()}
-                  style={{ flex: 1 }}
-                />
-                <button className="btn btn-primary" onClick={addRecipient} style={{ flexShrink: 0 }}>Add</button>
+              <div style={{ position: "relative" }}>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="email"
+                    placeholder="name@company.com"
+                    value={emailInput}
+                    onChange={e => setEmailInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        setSuggestionIdx(i => Math.min(i + 1, suggestions.length - 1));
+                      } else if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        setSuggestionIdx(i => Math.max(i - 1, -1));
+                      } else if (e.key === "Escape") {
+                        setSuggestions([]);
+                      } else if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (suggestionIdx >= 0 && suggestions[suggestionIdx]) {
+                          selectSuggestion(suggestions[suggestionIdx]);
+                        } else {
+                          addRecipient();
+                        }
+                      }
+                    }}
+                    onBlur={() => setTimeout(() => setSuggestions([]), 150)}
+                    style={{ flex: 1 }}
+                    autoComplete="off"
+                  />
+                  <button className="btn btn-primary" onClick={() => addRecipient()} style={{ flexShrink: 0 }}>Add</button>
+                </div>
+
+                {suggestions.length > 0 && (
+                  <div className="autocomplete-dropdown">
+                    {suggestions.map((person, i) => (
+                      <div
+                        key={person.email}
+                        className={`autocomplete-item${i === suggestionIdx ? " active" : ""}`}
+                        onMouseDown={e => { e.preventDefault(); selectSuggestion(person); }}
+                      >
+                        {person.photo
+                          ? <img src={person.photo} alt="" className="autocomplete-avatar" referrerPolicy="no-referrer" />
+                          : <div className="autocomplete-avatar autocomplete-avatar-fallback">{person.name.charAt(0)}</div>
+                        }
+                        <div className="autocomplete-info">
+                          <div className="autocomplete-name">{person.name}</div>
+                          <div className="autocomplete-email">{person.email}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
+
             {recipients.length > 0 && (
               <div style={{ marginBottom: 16 }}>
                 {recipients.map((email, i) => (
@@ -291,42 +433,104 @@ export function CampaignFlow() {
   // ── Step 3: Map variables ──
   if (step === 3) {
     if (!selectedTemplate) return null;
+
+    const hasDirectoryData = Object.keys(recipientDetails).length > 0;
+    const vars = selectedTemplate.variables;
+
     return (
       <div className="step-content">
         <div className="panel">
           <StepDots step={3} />
           <div className="panel-body">
-            {selectedTemplate.variables.length === 0 ? (
+            {vars.length === 0 ? (
               <div className="alert alert-info">This template has no variables. Click Next to continue.</div>
             ) : (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Email</th>
-                      {selectedTemplate.variables.map((v, i) => <th key={i}>{"{" + v.name + "}"}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recipients.map((email, ri) => (
-                      <tr key={ri}>
-                        <td style={{ fontWeight: 500 }}>{email}</td>
-                        {selectedTemplate.variables.map((v, vi) => (
-                          <td key={vi}>
-                            <input
-                              className="mapping-input"
-                              type="text"
-                              placeholder={v.default || "—"}
-                              value={mappings[ri]?.[v.name] ?? ""}
-                              onChange={e => setMapping(ri, v.name, e.target.value)}
-                            />
-                          </td>
+              <>
+                {/* Advanced Rules */}
+                <div className="advanced-rules">
+                  <div className="advanced-rules-header">
+                    <div className="advanced-rules-title">Auto-fill rules</div>
+                    <div className="advanced-rules-desc">
+                      Map variables to directory fields. Rows are filled automatically for recipients matched from your organisation's directory.
+                    </div>
+                  </div>
+                  <div className="advanced-rules-body">
+                    {vars.map(v => (
+                      <div key={v.name} className="rule-row">
+                        <span className="var-pill" style={{ cursor: "default" }}>{"{" + v.name + "}"}</span>
+                        <span className="rule-arrow">→</span>
+                        <select
+                          className="rule-select"
+                          value={variableRules[v.name] ?? ""}
+                          onChange={e => setVariableRules(prev => ({ ...prev, [v.name]: e.target.value as DirectoryField | "" }))}
+                        >
+                          <option value="">— No rule —</option>
+                          {(Object.entries(DIRECTORY_FIELD_LABELS) as [DirectoryField, string][]).map(([field, label]) => (
+                            <option key={field} value={field}>{label}</option>
+                          ))}
+                        </select>
+                        {variableRules[v.name] && !hasDirectoryData && (
+                          <span className="rule-hint">No directory data yet — add recipients via search</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Mapping table */}
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Email</th>
+                        {vars.map((v, i) => (
+                          <th key={i}>
+                            {"{" + v.name + "}"}
+                            {variableRules[v.name] && (
+                              <span className="rule-badge">{DIRECTORY_FIELD_LABELS[variableRules[v.name] as DirectoryField]}</span>
+                            )}
+                          </th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {recipients.map((email, ri) => {
+                        const person = recipientDetails[email];
+                        return (
+                          <tr key={ri}>
+                            <td style={{ fontWeight: 500 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                {person?.photo && (
+                                  <img src={person.photo} alt="" className="autocomplete-avatar" style={{ width: 24, height: 24 }} referrerPolicy="no-referrer" />
+                                )}
+                                {email}
+                              </div>
+                            </td>
+                            {vars.map((v, vi) => {
+                              const autoVal = variableRules[v.name] && person
+                                ? resolveDirectoryField(person, variableRules[v.name] as DirectoryField)
+                                : null;
+                              const cellVal = mappings[ri]?.[v.name] ?? "";
+                              const isAutoFilled = autoVal !== null && cellVal === autoVal;
+                              return (
+                                <td key={vi}>
+                                  <input
+                                    className={`mapping-input${isAutoFilled ? " mapping-input-auto" : ""}`}
+                                    type="text"
+                                    placeholder={v.default || "—"}
+                                    value={cellVal}
+                                    onChange={e => setMapping(ri, v.name, e.target.value)}
+                                  />
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
             <div className="button-group">
               <button className="btn" onClick={() => setStep(2)}>← Back</button>
