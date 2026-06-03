@@ -61,8 +61,12 @@ export function toGoogleCalendarEvent(
   values: Record<string, string> = {},
   conferenceRequestId = ""
 ): SparkCalendarEventPayload {
-  // Resolve template variables: caller-supplied value wins, then declared default.
-  const resolved: Record<string, string> = {};
+  // Seed resolved with ALL caller values first so that reserved variables
+  // (eventDate, startTime, endTime) that live only in `values` — not in
+  // template.variables — are still substituted in title/description/location.
+  // Then override each declared template variable so its default is applied
+  // when the caller omitted a value.
+  const resolved: Record<string, string> = { ...values };
   (template.variables ?? []).forEach((v: Variable) => {
     resolved[v.name] = values[v.name] ?? v.default ?? "";
   });

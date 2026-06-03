@@ -373,4 +373,95 @@ describe("toGoogleCalendarEvent", () => {
     const event = toGoogleCalendarEvent(template, {});
     expect(event.end.dateTime).toBe("2026-11-01T09:00:00");
   });
+
+  // ── Reserved-variable substitution in text fields (regression for field sub bug) ──
+  // Reserved variables (eventDate, startTime, endTime) live only in `values`, not in
+  // template.variables.  Before the fix, resolved was seeded only from template.variables,
+  // so {eventDate} / {startTime} / {endTime} tokens in the description were left verbatim.
+
+  it("replaces {eventDate} token in description when dateIsVariable is true", () => {
+    const template = makeTemplate({
+      content: "Meeting on {eventDate}",
+      dateIsVariable: true,
+    });
+    const event = toGoogleCalendarEvent(template, { eventDate: "2026-07-15" });
+    expect(event.description).toBe("Meeting on 2026-07-15");
+  });
+
+  it("replaces {startTime} token in description when startTimeIsVariable is true", () => {
+    const template = makeTemplate({
+      content: "Starts at {startTime}",
+      startTimeIsVariable: true,
+    });
+    const event = toGoogleCalendarEvent(template, { startTime: "09:00" });
+    expect(event.description).toBe("Starts at 09:00");
+  });
+
+  it("replaces {endTime} token in description when endTimeIsVariable is true", () => {
+    const template = makeTemplate({
+      content: "Ends at {endTime}",
+      endTimeIsVariable: true,
+    });
+    const event = toGoogleCalendarEvent(template, { endTime: "10:30" });
+    expect(event.description).toBe("Ends at 10:30");
+  });
+
+  it("replaces all three reserved tokens together in description", () => {
+    const template = makeTemplate({
+      content: "On {eventDate} from {startTime} to {endTime}",
+      dateIsVariable: true,
+      startTimeIsVariable: true,
+      endTimeIsVariable: true,
+    });
+    const event = toGoogleCalendarEvent(template, {
+      eventDate: "2026-08-01",
+      startTime: "14:00",
+      endTime: "15:00",
+    });
+    expect(event.description).toBe("On 2026-08-01 from 14:00 to 15:00");
+  });
+
+  it("replaces {eventDate} token in eventTitle when dateIsVariable is true", () => {
+    const template = makeTemplate({
+      eventTitle: "Sync on {eventDate}",
+      dateIsVariable: true,
+    });
+    const event = toGoogleCalendarEvent(template, { eventDate: "2026-09-10" });
+    expect(event.summary).toBe("Sync on 2026-09-10");
+  });
+
+  it("replaces {eventDate} token in location when dateIsVariable is true", () => {
+    const template = makeTemplate({
+      location: "Room booked {eventDate}",
+      dateIsVariable: true,
+    });
+    const event = toGoogleCalendarEvent(template, { eventDate: "2026-09-10" });
+    expect(event.location).toBe("Room booked 2026-09-10");
+  });
+
+  it("mixes reserved and user-defined variable substitution in the same description", () => {
+    const template = makeTemplate({
+      content: "Hi {firstName}, your slot is {eventDate} at {startTime}",
+      variables: [{ name: "firstName", default: "" }],
+      dateIsVariable: true,
+      startTimeIsVariable: true,
+    });
+    const event = toGoogleCalendarEvent(template, {
+      firstName: "Carol",
+      eventDate: "2026-10-05",
+      startTime: "11:00",
+    });
+    expect(event.description).toBe("Hi Carol, your slot is 2026-10-05 at 11:00");
+  });
+
+  it("leaves reserved token unreplaced when its value is not supplied", () => {
+    // When eventDate is absent from values, { ...values } seeds an empty resolved,
+    // so the {eventDate} token stays verbatim — same as any unmapped user variable.
+    const template = makeTemplate({
+      content: "On {eventDate}",
+      dateIsVariable: true,
+    });
+    const event = toGoogleCalendarEvent(template, {}); // no eventDate key
+    expect(event.description).toBe("On {eventDate}");
+  });
 });
