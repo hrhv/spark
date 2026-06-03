@@ -4,6 +4,7 @@
  */
 
 import { GoogleAuthToken, GoogleCalendarEvent, Invitee } from "@/types";
+import type { SparkCalendarEventPayload } from "./templateToCalendarEvent";
 
 const GOOGLE_CLIENT_ID =
   import.meta.env.VITE_GOOGLE_CLIENT_ID ||
@@ -206,6 +207,55 @@ export function validateGoogleConfig(): {
     isValid: errors.length === 0,
     errors,
   };
+}
+
+/**
+ * Create a calendar event for a single recipient using a live access token.
+ * Adds the recipient as an attendee and sends them an email invitation.
+ */
+export async function createEventForRecipient(
+  accessToken: string,
+  event: SparkCalendarEventPayload,
+  attendeeEmail: string,
+  attendeeDisplayName?: string
+): Promise<{ success: boolean; eventId?: string; error?: string }> {
+  const hasConference = !!event.conferenceData;
+  const params = new URLSearchParams({ sendUpdates: "all" });
+  if (hasConference) params.set("conferenceDataVersion", "1");
+  const url = `${GOOGLE_API_BASE}/calendars/primary/events?${params.toString()}`;
+
+  const payload = {
+    ...event,
+    attendees: [{ email: attendeeEmail, displayName: attendeeDisplayName ?? attendeeEmail }],
+  };
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      let message = `HTTP ${response.status}`;
+      try {
+        const errorData = (await response.json()) as { error?: { message?: string } };
+        message = errorData.error?.message ?? message;
+      } catch { /* ignore parse errors */ }
+      return { success: false, error: message };
+    }
+
+    const data = (await response.json()) as { id: string };
+    return { success: true, eventId: data.id };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Network error",
+    };
+  }
 }
 
 /**

@@ -98,24 +98,29 @@ export function toGoogleCalendarEvent(
   const location    = substituteVariables(template.location ?? "", resolved);
   const tz          = template.timezone ?? "UTC";
 
+  // When date/time fields are variable-driven, pull from the per-recipient values.
+  const effectiveDate      = template.dateIsVariable      ? (values.eventDate  ?? "") : (template.date      ?? "");
+  const effectiveStartTime = template.startTimeIsVariable ? (values.startTime  ?? "") : (template.startTime ?? "");
+  const effectiveEndTime   = template.endTimeIsVariable   ? (values.endTime    ?? "") : (template.endTime   ?? "");
+
   // Build start / end — use dateTime when a clock time is present, date-only otherwise.
   let start: SparkCalendarDateTime = {};
   let end:   SparkCalendarDateTime = {};
 
-  if (template.date) {
-    if (template.startTime) {
-      start = { dateTime: `${template.date}T${template.startTime}:00`, timeZone: tz };
+  if (effectiveDate) {
+    if (effectiveStartTime) {
+      start = { dateTime: `${effectiveDate}T${effectiveStartTime}:00`, timeZone: tz };
     } else {
-      start = { date: template.date };
+      start = { date: effectiveDate };
     }
 
-    if (template.endTime) {
-      end = { dateTime: `${template.date}T${template.endTime}:00`, timeZone: tz };
-    } else if (template.startTime) {
+    if (effectiveEndTime) {
+      end = { dateTime: `${effectiveDate}T${effectiveEndTime}:00`, timeZone: tz };
+    } else if (effectiveStartTime) {
       // No explicit end time — mirror start so the payload is always valid.
-      end = { dateTime: `${template.date}T${template.startTime}:00`, timeZone: tz };
+      end = { dateTime: `${effectiveDate}T${effectiveStartTime}:00`, timeZone: tz };
     } else {
-      end = { date: template.date };
+      end = { date: effectiveDate };
     }
   }
 

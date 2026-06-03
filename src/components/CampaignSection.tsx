@@ -8,6 +8,14 @@ import { searchDirectoryPeople } from "../utils/directorySearch";
 import type { DirectoryPerson } from "../utils/directorySearch";
 import type { Variable, Template } from "./TemplatesSection";
 import { getEffectiveVariables, RESERVED_VARIABLE_NAMES } from "./TemplatesSection";
+import { toGoogleCalendarEvent } from "../utils/templateToCalendarEvent";
+import type { SparkCalendarEventPayload } from "../utils/templateToCalendarEvent";
+import { createEventForRecipient } from "../utils/googleCalendar";
+
+export interface CampaignSendError {
+  email: string;
+  error: string;
+}
 
 export interface Campaign {
   id: string;
@@ -20,6 +28,9 @@ export interface Campaign {
   timestamp: number;
   // Sent-only
   sentAt?: string;
+  successCount?: number;
+  failureCount?: number;
+  errors?: CampaignSendError[];
   // Draft state — persisted across sessions
   step?: number;
   mappings?: Record<string, Record<string, string>>;
@@ -94,14 +105,28 @@ function CampaignDetailModal({ campaign, onClose }: { campaign: Campaign; onClos
               <div className="stat-value">{campaign.recipientCount}</div>
             </div>
             <div className="stat-card">
-              <div className="stat-label">Variables</div>
-              <div className="stat-value">{campaign.variables.length}</div>
+              <div className="stat-label">Sent</div>
+              <div className="stat-value" style={{ color: "var(--green)" }}>
+                {campaign.successCount ?? campaign.recipientCount}
+              </div>
             </div>
-            <div className="stat-card">
-              <div className="stat-label">Status</div>
-              <div className="stat-value" style={{ color: "var(--green)", fontSize: 18 }}>Sent</div>
-            </div>
+            {(campaign.failureCount ?? 0) > 0 && (
+              <div className="stat-card">
+                <div className="stat-label">Failed</div>
+                <div className="stat-value" style={{ color: "var(--red)" }}>{campaign.failureCount}</div>
+              </div>
+            )}
           </div>
+          {campaign.errors && campaign.errors.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: "var(--red)", marginBottom: 8 }}>Failed invitations</div>
+              {campaign.errors.map((e, i) => (
+                <div key={i} style={{ fontSize: 13, color: "var(--tx2)", marginBottom: 4 }}>
+                  <strong>{e.email}</strong>: {e.error}
+                </div>
+              ))}
+            </div>
+          )}
           <div style={{ fontSize: 14, fontWeight: 500, color: "var(--tx2)", marginBottom: 10 }}>Recipients</div>
           <div style={{ fontSize: 14, color: "var(--tx2)", lineHeight: 1.9 }}>
             {campaign.recipients.map((r, i) => <div key={i}>{r}</div>)}
@@ -282,6 +307,13 @@ export function CampaignFlow() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [sentCampaign, setSentCampaign] = useState<Campaign | null>(null);
 
+  // Sending progress state
+  const [isSending, setIsSending] = useState(false);
+  const [sendDone, setSendDone] = useState(0);
+  const [sendSuccess, setSendSuccess] = useState(0);
+  const [sendFailed, setSendFailed] = useState(0);
+  const [sendErrors, setSendErrors] = useState<CampaignSendError[]>([]);
+
   // Directory autocomplete
   const [suggestions, setSuggestions] = useState<DirectoryPerson[]>([]);
   const [suggestionIdx, setSuggestionIdx] = useState(-1);
@@ -407,8 +439,61 @@ export function CampaignFlow() {
     setMappings(prev => ({ ...prev, [ri]: { ...(prev[ri] ?? {}), [varName]: value } }));
   }
 
-  function startCampaign() {
-    if (!selectedTemplate) return;
+  async function startCampaign() {
+    if (!selectedTemplate || !accessToken) return;
+    setShowConfirm(false);
+    setIsSending(true);
+    setSendDone(0);
+    setSendSuccess(0);
+    setSendFailed(0);
+    setSendErrors([]);
+
+    let successCount = 0;
+    let failureCount = 0;
+    const errors: CampaignSendError[] = [];
+
+    for (let ri = 0; ri < recipients.length; ri++) {
+      const email = recipients[ri];
+      const person = recipientDetails[email];
+
+      // Build per-recipient variable values (includes reserved date/time vars).
+      const values: Record<string, string> = {};
+      getEffectiveVariables(selectedTemplate).forEach(v => {
+        values[v.name] = mappings[ri]?.[v.name] ?? v.default ?? "";
+      });
+
+      const conferenceRequestId = `${draftId}-${ri}`;
+      const eventPayload = toGoogleCalendarEvent(
+        selectedTemplate,
+        values,
+        conferenceRequestId
+      ) as SparkCalendarEventPayload;
+
+      const result = await createEventForRecipient(
+        accessToken,
+        eventPayload,
+        email,
+        person?.name
+      );
+
+      if (result.success) {
+        successCount++;
+        setSendSuccess(s => s + 1);
+      } else {
+        failureCount++;
+        const err: CampaignSendError = { email, error: result.error ?? "Unknown error" };
+        errors.push(err);
+        setSendErrors(prev => [...prev, err]);
+        setSendFailed(f => f + 1);
+      }
+      setSendDone(ri + 1);
+
+      // Brief pause between requests to respect Google Calendar API rate limits.
+      if (ri < recipients.length - 1) {
+        await new Promise<void>(resolve => setTimeout(resolve, 150));
+      }
+    }
+
     const c: Campaign = {
       id: draftId,
       status: "sent",
@@ -419,11 +504,14 @@ export function CampaignFlow() {
       variables: selectedTemplate.variables,
       sentAt: new Date().toLocaleString(),
       timestamp: Date.now(),
+      successCount,
+      failureCount,
+      errors,
     };
     saveCampaign(c);
     addKnownEmails(recipients);
     setSentCampaign(c);
-    setShowConfirm(false);
+    setIsSending(false);
     setStep(5);
   }
 
@@ -756,9 +844,20 @@ export function CampaignFlow() {
                 {unresolvedError}
               </div>
             )}
+            {!accessToken && (
+              <div className="alert alert-warning" style={{ marginTop: 12 }}>
+                Your session has expired. Please sign out and sign back in to send invitations.
+              </div>
+            )}
             <div className="button-group">
               <button className="btn" onClick={() => setStep(3)}>← Back</button>
-              <button className="btn btn-primary" disabled={hasUnresolved} onClick={() => setShowConfirm(true)}>Start campaign →</button>
+              <button
+                className="btn btn-primary"
+                disabled={hasUnresolved || !accessToken}
+                onClick={() => setShowConfirm(true)}
+              >
+                Start campaign →
+              </button>
             </div>
           </div>
         </div>
@@ -783,20 +882,101 @@ export function CampaignFlow() {
             </div>
           </div>
         )}
+
+        {isSending && (
+          <div className="modal-backdrop open">
+            <div className="modal">
+              <div className="modal-header">
+                <div className="modal-title">Sending invitations…</div>
+                <div className="modal-desc">{sendDone} of {recipients.length} processed</div>
+              </div>
+              <div className="modal-body">
+                <div style={{
+                  height: 6,
+                  background: "var(--bd)",
+                  borderRadius: 3,
+                  overflow: "hidden",
+                  marginBottom: 20,
+                }}>
+                  <div style={{
+                    height: "100%",
+                    background: "var(--accent)",
+                    borderRadius: 3,
+                    width: `${recipients.length ? (sendDone / recipients.length) * 100 : 0}%`,
+                    transition: "width 0.2s ease",
+                  }} />
+                </div>
+                <div className="stat-grid">
+                  <div className="stat-card">
+                    <div className="stat-label">Sent</div>
+                    <div className="stat-value" style={{ color: "var(--green)" }}>{sendSuccess}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Failed</div>
+                    <div className="stat-value" style={{ color: sendFailed > 0 ? "var(--red)" : "var(--tx3)" }}>
+                      {sendFailed}
+                    </div>
+                  </div>
+                </div>
+                {sendErrors.length > 0 && (
+                  <div style={{ marginTop: 12, fontSize: 12, color: "var(--red)", lineHeight: 1.6 }}>
+                    {sendErrors.slice(-3).map((e, i) => (
+                      <div key={i}><strong>{e.email}</strong>: {e.error}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
   // ── Step 5: Complete ──
+  const totalSent    = sentCampaign?.successCount ?? 0;
+  const totalFailed  = sentCampaign?.failureCount ?? 0;
+  const totalCount   = sentCampaign?.recipientCount ?? recipients.length;
+  const allFailed    = totalFailed === totalCount && totalCount > 0;
+  const partialFail  = totalFailed > 0 && !allFailed;
+
   return (
     <div className="step-content">
       <div className="panel">
-        <div className="panel-body" style={{ textAlign: "center", padding: "64px 24px" }}>
-          <div style={{ fontSize: 44, marginBottom: 16, color: "var(--green)" }}>✓</div>
-          <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 10 }}>Campaign sent successfully</div>
-          <div style={{ fontSize: 15, color: "var(--tx2)", marginBottom: 32 }}>
-            {sentCampaign?.recipientCount ?? recipients.length} invitation{(sentCampaign?.recipientCount ?? recipients.length) !== 1 ? "s" : ""} queued for <strong>{selectedTemplate?.name}</strong>
+        <div className="panel-body" style={{ padding: "48px 24px" }}>
+          <div style={{ textAlign: "center", marginBottom: 32 }}>
+            <div style={{ fontSize: 44, marginBottom: 16, color: allFailed ? "var(--red)" : partialFail ? "var(--yellow, #f59e0b)" : "var(--green)" }}>
+              {allFailed ? "✕" : partialFail ? "⚠" : "✓"}
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 10 }}>
+              {allFailed ? "Campaign failed" : partialFail ? "Campaign sent with errors" : "Campaign sent successfully"}
+            </div>
+            <div style={{ fontSize: 15, color: "var(--tx2)" }}>
+              <strong style={{ color: "var(--green)" }}>{totalSent}</strong> of <strong>{totalCount}</strong> invitation{totalCount !== 1 ? "s" : ""} sent
+              {totalFailed > 0 && <> · <strong style={{ color: "var(--red)" }}>{totalFailed}</strong> failed</>}
+              {selectedTemplate && <> · <strong>{selectedTemplate.name}</strong></>}
+            </div>
           </div>
+
+          {sentCampaign?.errors && sentCampaign.errors.length > 0 && (
+            <div style={{
+              marginBottom: 28,
+              padding: 16,
+              background: "var(--bg2)",
+              borderRadius: 8,
+              border: "1px solid var(--bd)",
+            }}>
+              <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 10, color: "var(--red)" }}>
+                Failed invitations
+              </div>
+              {sentCampaign.errors.map((e, i) => (
+                <div key={i} style={{ fontSize: 13, color: "var(--tx2)", marginBottom: 6 }}>
+                  <strong>{e.email}</strong>: {e.error}
+                </div>
+              ))}
+            </div>
+          )}
+
           <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
             <button className="btn btn-primary" onClick={() => navigate("/campaigns")}>Back to Campaigns</button>
           </div>
