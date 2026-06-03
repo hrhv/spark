@@ -1,16 +1,15 @@
-# Bulk Invite 📅
+# Spark
 
-Privacy-first, open-source bulk Google Calendar invite tool. Send personalized meeting invitations to hundreds of people with variable substitution, all without your data ever leaving your device.
+Bulk Calendar Invitations. Personalized for each recipient. Privacy-first.
 
 ## Features
 
 ✅ **Privacy-First**: All processing happens in your browser. No backend, no data storage.  
 ✅ **Open Source**: Full transparency. Audit the code yourself.  
-✅ **Bulk Invites**: Send to 100+ recipients simultaneously.  
-✅ **Personalization**: Template with `{firstName}`, `{lastName}`, custom fields.  
-✅ **CSV Import**: Easily import recipient lists.  
+✅ **Bulk Invites**: Send to 50+ recipients simultaneously (unlimited, in theory).
+✅ **Personalization**: Template with `{firstName}`, `{lastName}`, custom fields.   
 ✅ **Real-time Preview**: See how each invitation looks.  
-✅ **Google Calendar Native**: Integrates directly with Google Calendar API.  
+✅ **Google Calendar Native**: Integrates directly with Google Calendar API and Google Workspace Directory API.
 ✅ **No Setup Required**: Works immediately after authentication.
 
 ## Quick Start
@@ -25,7 +24,7 @@ Privacy-first, open-source bulk Google Calendar invite tool. Send personalized m
 ```bash
 # Clone or download the project
 git clone <repository-url>
-cd bulk-invite
+cd spark
 
 # Install dependencies
 npm install
@@ -53,41 +52,17 @@ npm run preview
 1. Go to [Google Cloud Console](https://console.cloud.google.com)
 2. Create a new project
 3. Enable the Google Calendar API
-4. Create an OAuth 2.0 Client ID (Web application)
-5. Add authorized redirect URIs:
+4. Enable the Google People API
+5. Enable the Google Sheets API
+6. Create an OAuth 2.0 Client ID (Web application)
+7. Add authorized redirect URIs:
    - `http://localhost:3000` (development)
    - `https://yourdomain.com` (production)
-6. Copy your Client ID
-7. Create a `.env.local` file in the project root:
+8. Copy your Client ID
+9. Create a `.env.local` file in the project root:
 
 ```env
 VITE_GOOGLE_CLIENT_ID=your_client_id_here.apps.googleusercontent.com
-```
-
-## Project Structure
-
-```
-src/
-├── components/           # React components
-│   ├── App.tsx          # Main orchestrator
-│   ├── Header.tsx       # App header
-│   ├── CSVUploader.tsx  # CSV import
-│   ├── TemplateEditor.tsx
-│   ├── InvitePreview.tsx
-│   └── BulkSendForm.tsx
-├── hooks/               # Custom React hooks
-│   └── index.ts
-├── utils/               # Reusable, testable utilities
-│   ├── csvParser.ts
-│   ├── csvParser.test.ts
-│   ├── templateEngine.ts
-│   ├── templateEngine.test.ts
-│   └── googleCalendar.ts
-├── types/               # TypeScript interfaces
-│   └── index.ts
-├── styles/              # Global CSS
-│   └── global.css
-└── main.tsx             # Entry point
 ```
 
 ## Development
@@ -114,64 +89,6 @@ npm test -- --coverage
 npm run type-check
 npm run lint
 ```
-
-### Code Organization for Testing
-
-Each utility is designed to be **independently testable**:
-
-- **`csvParser.ts`**: Pure functions for CSV parsing
-  - `parseCSV()` - Parse CSV text
-  - `csvToInvitees()` - Convert to Invitee objects
-  - `validateInvitees()` - Validate data
-
-- **`templateEngine.ts`**: Pure functions for template processing
-  - `extractVariables()` - Find {variables}
-  - `renderTemplate()` - Substitute variables
-  - `validateTemplate()` - Check template validity
-
-- **`googleCalendar.ts`**: API integration
-  - `getAuthToken()` / `storeAuthToken()` - Auth management
-  - `createCalendarEvent()` - Create events
-  - `buildCalendarEvent()` - Event builder
-
-All functions are:
-- Pure (no side effects except noted)
-- Well-typed with TypeScript
-- Documented with JSDoc
-- Covered by tests
-
-## Example Test
-
-```typescript
-import { describe, it, expect } from "vitest";
-import { renderTemplate } from "@utils/templateEngine";
-
-describe("templateEngine", () => {
-  it("should replace variables in template", () => {
-    const invitee = {
-      firstName: "John",
-      lastName: "Doe",
-      email: "john@example.com",
-      customFields: {},
-    };
-
-    const { rendered } = renderTemplate(
-      "Hello {firstName}",
-      invitee
-    );
-
-    expect(rendered).toBe("Hello John");
-  });
-});
-```
-
-## How It Works
-
-1. **Authentication**: Sign in with Google (OAuth)
-2. **Import**: Upload CSV with email, firstName, lastName
-3. **Template**: Create invitation with {variables}
-4. **Preview**: See how invitations look
-5. **Send**: Create events directly in Google Calendar
 
 ## Security & Privacy
 
@@ -200,23 +117,14 @@ npm run build      # Ensure build succeeds
 
 ## Roadmap
 
-- [ ] Outlook/Microsoft 365 support
-- [ ] Apple Calendar support
-- [ ] RSVP tracking (optional backend)
 - [ ] Team management (optional backend)
-- [ ] Email templates (rich text)
 - [ ] Recurring invitations
-- [ ] Timezone handling
-- [ ] Undo/history
-
-## License
-
-MIT - Open source and free forever
+- [ ] Available time slots checking
 
 ## Support
 
-- Issues: [GitHub Issues](https://github.com/yourusername/bulk-invite/issues)
-- Discussions: [GitHub Discussions](https://github.com/yourusername/bulk-invite/discussions)
+- Issues: [GitHub Issues](https://github.com/hrhv/spark/issues)
+- Discussions: [GitHub Discussions](https://github.com/hrhv/spark/discussions)
 
 ## FAQs
 
@@ -237,4 +145,4 @@ A: No. It uses the public Google Calendar API.
 
 ---
 
-Made with ❤️ for developers who value privacy.
+Made with ❤️ for users who value privacy.
