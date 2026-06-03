@@ -228,7 +228,7 @@ export function CampaignsList() {
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     {c.status === "draft"
-                      ? <button className="btn btn-sm btn-primary" onClick={() => navigate(`/campaigns/${c.id}/edit`)}>Edit</button>
+                      ? <button className="btn btn-sm btn-primary" onClick={() => navigate(`/dashboard/campaigns/${c.id}/edit`)}>Edit</button>
                       : <button className="btn btn-sm" onClick={() => setDetail(c)}>View</button>
                     }
                     <button className="btn btn-sm" onClick={() => exportCampaign(c)}>Export</button>
@@ -546,7 +546,7 @@ export function CampaignFlow() {
                         <option key={id} value={id}>{tpl.name}</option>
                       ))}
                     </select>
-                    <button className="btn btn-sm" style={{ flexShrink: 0 }} onClick={() => navigate("/templates/new")}>+ New Template</button>
+                    <button className="btn btn-sm" style={{ flexShrink: 0 }} onClick={() => navigate("/dashboard/templates/new")}>+ New Template</button>
                   </div>
                 </div>
                 {selectedTemplate && (
@@ -560,7 +560,7 @@ export function CampaignFlow() {
               <button className="btn btn-primary" disabled={!selectedTemplateId} onClick={() => setStep(2)}>
                 Next →
               </button>
-              <button className="btn" onClick={() => navigate("/campaigns")}>Cancel</button>
+              <button className="btn" onClick={() => navigate("/dashboard/campaigns")}>Cancel</button>
             </div>
           </div>
         </div>
@@ -1037,7 +1037,7 @@ export function CampaignFlow() {
           )}
 
           <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-            <button className="btn btn-primary" onClick={() => navigate("/campaigns")}>Back to Campaigns</button>
+            <button className="btn btn-primary" onClick={() => navigate("/dashboard/campaigns")}>Back to Campaigns</button>
           </div>
         </div>
       </div>

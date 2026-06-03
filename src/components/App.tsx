@@ -16,6 +16,9 @@ import { TemplatesList, TemplateForm } from "./TemplatesSection";
 import type { Templates, Template, Campaign } from "@/types";
 import { EventPreview } from "./EventPreview";
 import { LoginPage } from "./LoginPage";
+import { LandingPage } from "./LandingPage";
+import { TermsOfService } from "./TermsOfService";
+import { PrivacyPolicy } from "./PrivacyPolicy";
 import { SparkBrand } from "./SparkBrand";
 import { useAuth, SCOPE_META, REQUESTED_SCOPES } from "../context/AuthContext";
 import "@styles/global.css";
@@ -519,7 +522,7 @@ function Sidebar({ onOpenPerms }: { onOpenPerms: () => void }) {
 
       <div className="rail-body">
         <NavLink
-          to="/campaigns"
+          to="/dashboard/campaigns"
           end={false}
           className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
         >
@@ -527,7 +530,7 @@ function Sidebar({ onOpenPerms }: { onOpenPerms: () => void }) {
           <div>Campaigns</div>
         </NavLink>
         <NavLink
-          to="/templates"
+          to="/dashboard/templates"
           end={false}
           className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
         >
@@ -557,10 +560,10 @@ function Sidebar({ onOpenPerms }: { onOpenPerms: () => void }) {
 // ─── Appbar ───────────────────────────────────────────────────────────────────
 
 const ROUTE_TITLES: Record<string, string> = {
-  "/campaigns":     "Campaigns",
-  "/campaigns/new": "New Campaign",
-  "/templates":     "Templates",
-  "/templates/new": "New Template",
+  "/dashboard/campaigns":     "Campaigns",
+  "/dashboard/campaigns/new": "New Campaign",
+  "/dashboard/templates":     "Templates",
+  "/dashboard/templates/new": "New Template",
 };
 
 interface AppbarProps {
@@ -580,19 +583,19 @@ function Appbar({ savedTemplates, updateTemplates, campaigns: _campaigns, saveCa
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const editTemplateMatch = location.pathname.match(/^\/templates\/(.+)\/edit$/);
-  const editCampaignMatch = location.pathname.match(/^\/campaigns\/(.+)\/edit$/);
+  const editTemplateMatch = location.pathname.match(/^\/dashboard\/templates\/(.+)\/edit$/);
+  const editCampaignMatch = location.pathname.match(/^\/dashboard\/campaigns\/(.+)\/edit$/);
   const title = editTemplateMatch ? "Edit Template"
     : editCampaignMatch ? "Edit Campaign"
     : (ROUTE_TITLES[location.pathname] ?? "Spark");
 
   // Back route: sub-routes go back to their list home
-  const backRoute = location.pathname.startsWith("/campaigns/") ? "/campaigns"
-    : location.pathname.startsWith("/templates/") ? "/templates"
+  const backRoute = location.pathname.startsWith("/dashboard/campaigns/") ? "/dashboard/campaigns"
+    : location.pathname.startsWith("/dashboard/templates/") ? "/dashboard/templates"
     : null;
 
-  const onCampaignsList = location.pathname === "/campaigns";
-  const onTemplatesList = location.pathname === "/templates";
+  const onCampaignsList = location.pathname === "/dashboard/campaigns";
+  const onTemplatesList = location.pathname === "/dashboard/templates";
 
   function showToast(message: string, type: "success" | "error") {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -630,7 +633,7 @@ function Appbar({ savedTemplates, updateTemplates, campaigns: _campaigns, saveCa
     const updated = { ...savedTemplates, [uuidv4()]: { ...pendingImport, name } };
     updateTemplates(updated);
     setPendingImport(null);
-    navigate("/templates");
+    navigate("/dashboard/templates");
     showToast(`"${name}" imported successfully.`, "success");
   }
 
@@ -665,7 +668,7 @@ function Appbar({ savedTemplates, updateTemplates, campaigns: _campaigns, saveCa
     };
     saveCampaign(c);
     setPendingCampaignImport(null);
-    navigate("/campaigns");
+    navigate("/dashboard/campaigns");
     showToast(`Campaign imported as draft.`, "success");
   }
 
@@ -691,7 +694,7 @@ function Appbar({ savedTemplates, updateTemplates, campaigns: _campaigns, saveCa
               <button className="btn btn-appbar" onClick={() => campaignFileRef.current?.click()}>
                 Import Campaign
               </button>
-              <button className="btn btn-primary btn-appbar" onClick={() => navigate("/campaigns/new")}>
+              <button className="btn btn-primary btn-appbar" onClick={() => navigate("/dashboard/campaigns/new")}>
                 + New Campaign
               </button>
             </>
@@ -708,7 +711,7 @@ function Appbar({ savedTemplates, updateTemplates, campaigns: _campaigns, saveCa
               <button className="btn btn-appbar" onClick={() => fileInputRef.current?.click()}>
                 Import Template
               </button>
-              <button className="btn btn-primary btn-appbar" onClick={() => navigate("/templates/new")}>
+              <button className="btn btn-primary btn-appbar" onClick={() => navigate("/dashboard/templates/new")}>
                 + New Template
               </button>
             </>
@@ -812,6 +815,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   if (isLoading) return null;
   if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
+
 }
 
 export default function App() {
@@ -819,24 +823,32 @@ export default function App() {
 
   return (
     <Routes>
+      {/* Public */}
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/terms-of-service" element={<TermsOfService />} />
+      <Route path="/privacy-policy"   element={<PrivacyPolicy />} />
       <Route
         path="/login"
         element={
           isLoading ? null : user
-            ? <Navigate to="/campaigns" replace />
+            ? <Navigate to="/dashboard/campaigns" replace />
             : <LoginPage />
         }
       />
-      <Route path="/" element={<Navigate to="/campaigns" replace />} />
-      <Route element={<RequireAuth><Shell /></RequireAuth>}>
-        <Route path="/campaigns"              element={<CampaignsList />} />
-        <Route path="/campaigns/new"          element={<CampaignFlow />} />
-        <Route path="/campaigns/:id/edit"     element={<CampaignFlow />} />
-        <Route path="/templates"          element={<TemplatesList />} />
-        <Route path="/templates/new"      element={<TemplateForm />} />
-        <Route path="/templates/:id/edit" element={<TemplateForm />} />
+
+      {/* App — protected, mounted under /dashboard */}
+      <Route path="/dashboard" element={<RequireAuth><Shell /></RequireAuth>}>
+        <Route index element={<Navigate to="campaigns" replace />} />
+        <Route path="campaigns"              element={<CampaignsList />} />
+        <Route path="campaigns/new"          element={<CampaignFlow />} />
+        <Route path="campaigns/:id/edit"     element={<CampaignFlow />} />
+        <Route path="templates"              element={<TemplatesList />} />
+        <Route path="templates/new"          element={<TemplateForm />} />
+        <Route path="templates/:id/edit"     element={<TemplateForm />} />
       </Route>
-      <Route path="*" element={<Navigate to="/campaigns" replace />} />
+
+      {/* Fallback */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

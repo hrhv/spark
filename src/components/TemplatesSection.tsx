@@ -160,7 +160,7 @@ export function TemplatesList() {
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button className="btn btn-sm" onClick={() => setPreviewTemplate(tpl)}>Preview</button>
-                  <button className="btn btn-sm" onClick={() => navigate(`/templates/${id}/edit`)}>Edit</button>
+                  <button className="btn btn-sm" onClick={() => navigate(`/dashboard/templates/${id}/edit`)}>Edit</button>
                   <button className="btn btn-sm" onClick={() => exportTemplate(tpl)}>Export</button>
                   <button className="btn btn-sm btn-danger" onClick={() => handleDelete(id)}>Delete</button>
                 </div>
@@ -334,7 +334,7 @@ export function TemplateForm() {
     const updated = { ...savedTemplates };
     updated[editingId ?? uuidv4()] = template;
     updateTemplates(updated);
-    navigate("/templates");
+    navigate("/dashboard/templates");
   }
 
   // ── Live draft template for preview ──
@@ -613,7 +613,7 @@ export function TemplateForm() {
           <button className="btn btn-primary" onClick={saveTemplate}>
             {editingId ? "Update template" : "Save template"}
           </button>
-          <button className="btn" onClick={() => navigate("/templates")}>Cancel</button>
+          <button className="btn" onClick={() => navigate("/dashboard/templates")}>Cancel</button>
         </div>
 
       </div>

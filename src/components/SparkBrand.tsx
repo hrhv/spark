@@ -12,7 +12,7 @@ export function SparkBrand({ size = "sm" }: SparkBrandProps) {
         src={sparkLogo}
         alt="Spark logo"
         className="spark-brand-logo"
-        style={{ width: isLg ? 52 : 36, height: isLg ? 52 : 36 }}
+        style={{ width: isLg ? 80 : 52, height: isLg ? 80 : 52 }}
       />
       <div>
         <div className="spark-brand-name">{isLg ? "Spark" : "Spark"}</div>
