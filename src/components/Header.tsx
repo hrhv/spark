@@ -11,7 +11,7 @@ export default function Header() {
     <header className="header">
       <div className="container header-content">
         <div className="header-brand">
-          <h1>📅 Bulk Invite</h1>
+          <h1>📅 Spark | Bulk Calendar Invitations. Personalized for each recipient. Privacy-first.</h1>
           <p className="tagline">Privacy-first, open-source bulk calendar invites</p>
         </div>
 
