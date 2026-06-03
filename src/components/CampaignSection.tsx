@@ -115,26 +115,61 @@ function CampaignDetailModal({ campaign, onClose }: { campaign: Campaign; onClos
   );
 }
 
+type StatusFilter = "all" | "draft" | "sent";
+
 export function CampaignsList() {
-  const { campaigns } = useAppContext();
+  const { campaigns, deleteCampaign } = useAppContext();
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
+  const [filter, setFilter] = useState<StatusFilter>("all");
   const [detail, setDetail] = useState<Campaign | null>(null);
 
-  const sorted = [...campaigns].reverse();
-  const totalPages = Math.max(1, Math.ceil(sorted.length / PER_PAGE));
-  const pageItems = sorted.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  function handleDelete(id: string) {
+    if (!confirm("Delete this draft campaign?")) return;
+    deleteCampaign(id);
+  }
+
+  const sorted   = [...campaigns].reverse();
+  const filtered = filter === "all" ? sorted : sorted.filter(c => c.status === filter);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const safePage   = Math.min(page, totalPages);
+  const pageItems  = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
+
+  const draftCount = sorted.filter(c => c.status === "draft").length;
+  const sentCount  = sorted.filter(c => c.status === "sent").length;
 
   return (
     <>
       <div className="panel">
+        {/* Status filter bar */}
+        {sorted.length > 0 && (
+          <div className="campaign-filter-bar">
+            {(["all", "draft", "sent"] as StatusFilter[]).map(f => (
+              <button
+                key={f}
+                className={`campaign-filter-btn${filter === f ? " active" : ""}`}
+                onClick={() => { setFilter(f); setPage(1); }}
+              >
+                {f === "all" ? "All" : f === "draft" ? "Drafts" : "Sent"}
+                <span className="campaign-filter-count">
+                  {f === "all" ? sorted.length : f === "draft" ? draftCount : sentCount}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="panel-body" style={{ padding: 0 }}>
-          {sorted.length === 0 ? (
+          {filtered.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon">📅</div>
-              <div className="empty-state-title">No campaigns yet</div>
+              <div className="empty-state-title">
+                {sorted.length === 0 ? "No campaigns yet" : `No ${filter} campaigns`}
+              </div>
               <div className="empty-state-desc">
-                Click <strong>+ New Campaign</strong> in the top bar to send your first batch of calendar invites.
+                {sorted.length === 0
+                  ? <>Click <strong>+ New Campaign</strong> in the top bar to send your first batch of calendar invites.</>
+                  : `Switch the filter to see other campaigns.`}
               </div>
             </div>
           ) : (
@@ -158,17 +193,20 @@ export function CampaignsList() {
                       : <button className="btn btn-sm" onClick={() => setDetail(c)}>View</button>
                     }
                     <button className="btn btn-sm" onClick={() => exportCampaign(c)}>Export</button>
+                    {c.status === "draft" && (
+                      <button className="btn btn-sm btn-danger" onClick={() => handleDelete(c.id)}>Delete</button>
+                    )}
                   </div>
                 </div>
               ))}
               {totalPages > 1 && (
                 <div className="pagination">
                   <span className="pagination-info">
-                    Page {page} of {totalPages} · {sorted.length} campaigns
+                    Page {safePage} of {totalPages} · {filtered.length} campaign{filtered.length !== 1 ? "s" : ""}
                   </span>
                   <div className="pagination-controls">
-                    <button className="btn btn-sm" disabled={page === 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
-                    <button className="btn btn-sm" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>Next →</button>
+                    <button className="btn btn-sm" disabled={safePage === 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
+                    <button className="btn btn-sm" disabled={safePage === totalPages} onClick={() => setPage(p => p + 1)}>Next →</button>
                   </div>
                 </div>
               )}

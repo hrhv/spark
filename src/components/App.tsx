@@ -28,6 +28,7 @@ export interface AppContext {
   updateTemplates: (t: Templates) => void;
   campaigns: Campaign[];
   saveCampaign: (c: Campaign) => void;
+  deleteCampaign: (id: string) => void;
   knownEmails: string[];
   addKnownEmails: (emails: string[]) => void;
 }
@@ -410,6 +411,14 @@ function Shell() {
     });
   }, []);
 
+  const deleteCampaign = useCallback((id: string) => {
+    setCampaigns(prev => {
+      const next = prev.filter(c => c.id !== id);
+      localStorage.setItem("spark-campaigns", JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
   const addKnownEmails = (emails: string[]) => {
     setKnownEmails(prev => {
       const set = new Set(prev);
@@ -467,7 +476,7 @@ function Shell() {
     showToast(`Replaced with ${tplCount} template${tplCount !== 1 ? "s" : ""} and ${campCount} campaign${campCount !== 1 ? "s" : ""}.`, "success");
   }
 
-  const ctx: AppContext = { savedTemplates, updateTemplates, campaigns, saveCampaign, knownEmails, addKnownEmails };
+  const ctx: AppContext = { savedTemplates, updateTemplates, campaigns, saveCampaign, deleteCampaign, knownEmails, addKnownEmails };
 
   return (
     <div className="editor">

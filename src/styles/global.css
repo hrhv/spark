@@ -1026,6 +1026,42 @@ tr:hover td { background: var(--bg2); }
 }
 
 /* ── Autocomplete dropdown ───────────────────────────────── */
+.campaign-filter-bar {
+  display: flex;
+  gap: 2px;
+  padding: 10px 14px;
+  border-bottom: 0.5px solid var(--bd);
+}
+.campaign-filter-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tx2);
+  cursor: pointer;
+  font-family: var(--sans);
+  transition: background 0.1s, color 0.1s;
+}
+.campaign-filter-btn:hover { background: var(--bg2); color: var(--tx); }
+.campaign-filter-btn.active { background: var(--bg3); color: var(--tx); }
+.campaign-filter-count {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--bg3);
+  color: var(--tx3);
+}
+.campaign-filter-btn.active .campaign-filter-count {
+  background: var(--blue-bg);
+  color: var(--blue-tx);
+}
+
 .draft-badge {
   font-size: 11px;
   font-weight: 500;
