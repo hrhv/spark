@@ -17,7 +17,7 @@ export function SparkBrand({ size = "sm" }: SparkBrandProps) {
       <div>
         <div className="spark-brand-name">{isLg ? "Spark" : "Spark"}</div>
         <div className="spark-brand-sub">
-          {isLg ? "Bulk Calendar Invitations" : "Calendar Invites"}
+          Bulk Calendar Invitations
         </div>
       </div>
     </div>

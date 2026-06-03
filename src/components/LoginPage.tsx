@@ -60,7 +60,7 @@ export function LoginPage() {
         <div className="login-divider" />
 
         <p className="login-desc">
-          Sign in with your Google account to send calendar invitations to multiple recipients at once.
+          Sign in with your Google for Work account to send personalized calendar invitations to multiple recipients at once.
         </p>
 
         <button
@@ -75,16 +75,18 @@ export function LoginPage() {
         {error && <div className="login-error">{error}</div>}
 
         <div className="login-permissions">
-          <div className="login-permissions-label">Permissions requested</div>
-          <div className="login-permissions-list">
-            <div className="login-permission-item">
-              <span className="login-permission-dot" />
-              Basic profile — name, email, photo
-            </div>
-            <div className="login-permission-item">
-              <span className="login-permission-dot" />
-              Google Calendar — create and manage events
-            </div>
+          <div className="login-permissions-label">Important Note</div>
+          <div className="login-permission-item">
+            <p>
+              This entire app runs in your browser. No data is stored on our servers.<br/><br/>
+              <strong>What this means for you:</strong><br/>
+              <ul style={{ paddingLeft: "10px", paddingTop: "15px" }}>
+                <li style={{ marginBottom: "10px" }}>Your user data, campaigns or templates are stored in your browser and survive browser restarts, updates, device shutdowns, etc.</li>
+                <li style={{ marginBottom: "10px" }}>Your data always remains private and secure.</li>
+                <li style={{ marginBottom: "10px" }}>There are no cloud syncs or backups. You are responsible for your own data.</li>
+                <li style={{ marginBottom: "10px" }}><span style={{ color: "red", fontSize: "11px" }}>If you clear your browser data like cookies, local storage, etc., your data will be lost and cannot be recovered</span>.</li>
+              </ul>
+            </p>
           </div>
         </div>
       </div>

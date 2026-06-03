@@ -49,6 +49,19 @@ function resolveDirectoryField(person: DirectoryPerson, field: DirectoryField): 
   }
 }
 
+// ─── Campaign export ─────────────────────────────────────────────────────────
+
+function exportCampaign(campaign: Campaign) {
+  const { id: _id, ...data } = campaign; // strip ID — new one assigned on import
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = (campaign.templateName || "campaign").replace(/[^a-z0-9]/gi, "_").toLowerCase() + ".spark-campaign.json";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ─── Template token scanner ─────────────────────────────────────────────────
 
 /** Extracts every {varName} token that appears in a template's text fields. */
@@ -139,10 +152,13 @@ export function CampaignsList() {
                       {c.status === "draft" && ` · Step ${c.step ?? 1} of 4`}
                     </div>
                   </div>
-                  {c.status === "draft"
-                    ? <button className="btn btn-sm btn-primary" onClick={() => navigate(`/campaigns/${c.id}/edit`)}>Edit</button>
-                    : <button className="btn btn-sm" onClick={() => setDetail(c)}>View</button>
-                  }
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {c.status === "draft"
+                      ? <button className="btn btn-sm btn-primary" onClick={() => navigate(`/campaigns/${c.id}/edit`)}>Edit</button>
+                      : <button className="btn btn-sm" onClick={() => setDetail(c)}>View</button>
+                    }
+                    <button className="btn btn-sm" onClick={() => exportCampaign(c)}>Export</button>
+                  </div>
                 </div>
               ))}
               {totalPages > 1 && (

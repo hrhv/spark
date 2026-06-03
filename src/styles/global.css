@@ -141,6 +141,21 @@ body {
 .ab-sep { width: 0.5px; height: 18px; background: var(--bd2); margin: 0 6px; }
 .ab-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .appbar-title { font-size: 14px; font-weight: 500; color: var(--tx); padding: 4px 8px; }
+.appbar-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0.5px solid var(--bd2);
+  border-radius: var(--r);
+  background: none;
+  color: var(--tx2);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.1s, color 0.1s;
+}
+.appbar-back:hover { background: var(--bg3); color: var(--tx); }
 .btn-appbar { font-size: 15px; font-weight: 500; padding: 10px 24px; }
 
 /* ── Content area ────────────────────────────────────────── */

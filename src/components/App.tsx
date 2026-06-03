@@ -10,7 +10,7 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import { CalendarDays, FileText } from "lucide-react";
+import { ArrowLeft, CalendarDays, FileText } from "lucide-react";
 import { CampaignsList, CampaignFlow } from "./CampaignSection";
 import { TemplatesList, TemplateForm } from "./TemplatesSection";
 import type { Templates, Template } from "./TemplatesSection";
@@ -160,7 +160,7 @@ function Shell() {
     <div className="editor">
       <Sidebar />
       <div className="main">
-        <Appbar savedTemplates={savedTemplates} updateTemplates={updateTemplates} />
+        <Appbar savedTemplates={savedTemplates} updateTemplates={updateTemplates} campaigns={campaigns} saveCampaign={saveCampaign} />
         <div className="content">
           <Outlet context={ctx} />
         </div>
@@ -235,20 +235,30 @@ const ROUTE_TITLES: Record<string, string> = {
 interface AppbarProps {
   savedTemplates: Templates;
   updateTemplates: (t: Templates) => void;
+  campaigns: Campaign[];
+  saveCampaign: (c: Campaign) => void;
 }
 
-function Appbar({ savedTemplates, updateTemplates }: AppbarProps) {
+function Appbar({ savedTemplates, updateTemplates, campaigns: _campaigns, saveCampaign }: AppbarProps) {
   const location     = useLocation();
   const navigate     = useNavigate();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef       = useRef<HTMLInputElement>(null);
+  const campaignFileRef    = useRef<HTMLInputElement>(null);
   const [pendingImport, setPendingImport] = useState<Template | null>(null);
+  const [pendingCampaignImport, setPendingCampaignImport] = useState<Campaign | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const editMatch = location.pathname.match(/^\/templates\/(.+)\/edit$/);
-  const title = editMatch
-    ? "Edit Template"
+  const editTemplateMatch = location.pathname.match(/^\/templates\/(.+)\/edit$/);
+  const editCampaignMatch = location.pathname.match(/^\/campaigns\/(.+)\/edit$/);
+  const title = editTemplateMatch ? "Edit Template"
+    : editCampaignMatch ? "Edit Campaign"
     : (ROUTE_TITLES[location.pathname] ?? "Spark");
+
+  // Back route: sub-routes go back to their list home
+  const backRoute = location.pathname.startsWith("/campaigns/") ? "/campaigns"
+    : location.pathname.startsWith("/templates/") ? "/templates"
+    : null;
 
   const onCampaignsList = location.pathname === "/campaigns";
   const onTemplatesList = location.pathname === "/templates";
@@ -293,15 +303,67 @@ function Appbar({ savedTemplates, updateTemplates }: AppbarProps) {
     showToast(`"${name}" imported successfully.`, "success");
   }
 
+  function handleCampaignFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result as string);
+        if (typeof data.templateName !== "string" || !Array.isArray(data.recipients)) {
+          showToast("Invalid campaign file — missing required fields.", "error");
+          return;
+        }
+        setPendingCampaignImport(data as Campaign);
+      } catch {
+        showToast("Could not parse the selected file as JSON.", "error");
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function confirmCampaignImport() {
+    if (!pendingCampaignImport) return;
+    const c: Campaign = {
+      ...pendingCampaignImport,
+      id: uuidv4(),
+      status: "draft",
+      sentAt: undefined,
+      timestamp: Date.now(),
+    };
+    saveCampaign(c);
+    setPendingCampaignImport(null);
+    navigate("/campaigns");
+    showToast(`Campaign imported as draft.`, "success");
+  }
+
   return (
     <>
       <div className="appbar">
+        {backRoute && (
+          <button className="appbar-back" onClick={() => navigate(backRoute)} title="Back">
+            <ArrowLeft size={16} />
+          </button>
+        )}
         <span className="appbar-title">{title}</span>
         <div className="ab-right">
           {onCampaignsList && (
-            <button className="btn btn-primary btn-appbar" onClick={() => navigate("/campaigns/new")}>
-              + New Campaign
-            </button>
+            <>
+              <input
+                ref={campaignFileRef}
+                type="file"
+                accept=".json"
+                style={{ display: "none" }}
+                onChange={handleCampaignFileChange}
+              />
+              <button className="btn btn-appbar" onClick={() => campaignFileRef.current?.click()}>
+                Import Campaign
+              </button>
+              <button className="btn btn-primary btn-appbar" onClick={() => navigate("/campaigns/new")}>
+                + New Campaign
+              </button>
+            </>
           )}
           {onTemplatesList && (
             <>
@@ -358,6 +420,46 @@ function Appbar({ savedTemplates, updateTemplates }: AppbarProps) {
             <div className="modal-footer">
               <button className="btn" onClick={() => setPendingImport(null)}>Cancel</button>
               <button className="btn btn-primary" onClick={confirmImport}>Import</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingCampaignImport && (
+        <div className="modal-backdrop open" onClick={e => e.target === e.currentTarget && setPendingCampaignImport(null)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Import campaign</div>
+              <div className="modal-desc">This campaign will be imported as a draft.</div>
+            </div>
+            <div className="modal-body">
+              <div className="stat-grid">
+                <div className="stat-card">
+                  <div className="stat-label">Template</div>
+                  <div className="stat-value" style={{ fontSize: 15 }}>{pendingCampaignImport.templateName || "—"}</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Recipients</div>
+                  <div className="stat-value">{pendingCampaignImport.recipientCount ?? pendingCampaignImport.recipients?.length ?? 0}</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Step</div>
+                  <div className="stat-value">{pendingCampaignImport.step ?? 1} of 4</div>
+                </div>
+              </div>
+              {(pendingCampaignImport.recipients?.length ?? 0) > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: 13, color: "var(--tx2)", marginBottom: 8 }}>Recipients</div>
+                  <div style={{ fontSize: 13, color: "var(--tx3)", lineHeight: 1.8 }}>
+                    {pendingCampaignImport.recipients.slice(0, 5).join(", ")}
+                    {pendingCampaignImport.recipients.length > 5 && ` +${pendingCampaignImport.recipients.length - 5} more`}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn" onClick={() => setPendingCampaignImport(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={confirmCampaignImport}>Import as draft</button>
             </div>
           </div>
         </div>
