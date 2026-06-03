@@ -23,9 +23,27 @@ export interface Template {
   timezone?: string;
   location?: string;
   addMeet?: boolean;
+  // Reserved variable flags — when true the field is per-recipient, not fixed
+  dateIsVariable?: boolean;
+  startTimeIsVariable?: boolean;
+  endTimeIsVariable?: boolean;
 }
 
 export type Templates = Record<string, Template>;
+
+// ─── Reserved variables ───────────────────────────────────────────────────────
+
+export const RESERVED_VARIABLE_NAMES = ["eventDate", "startTime", "endTime"] as const;
+export type ReservedVariableName = typeof RESERVED_VARIABLE_NAMES[number];
+
+/** Returns all variables including implicit reserved ones from date/time flags. */
+export function getEffectiveVariables(template: Template): Variable[] {
+  const vars = [...(template.variables ?? [])];
+  if (template.dateIsVariable)      vars.push({ name: "eventDate",  default: "" });
+  if (template.startTimeIsVariable) vars.push({ name: "startTime",  default: "" });
+  if (template.endTimeIsVariable)   vars.push({ name: "endTime",    default: "" });
+  return vars;
+}
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -34,6 +52,30 @@ const DEFAULT_CONTENT = "Hello {recipientName},\n\nI'd like to invite you to {me
 function getBrowserTimezone(): string {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return TIMEZONES.some(t => t.value === tz) ? tz : "UTC";
+}
+
+function getDefaultDateTimes(): { date: string; startTime: string; endTime: string } {
+  const now = new Date();
+
+  // Today as YYYY-MM-DD
+  const year  = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day   = String(now.getDate()).padStart(2, "0");
+  const date  = `${year}-${month}-${day}`;
+
+  // Round up to the next 15-min boundary (e.g. 12:35 → 12:45, 12:45 → 13:00)
+  const rem         = now.getMinutes() % 15;
+  const minsToAdd   = rem === 0 ? 15 : 15 - rem;
+  const start       = new Date(now.getTime() + minsToAdd * 60_000);
+  start.setSeconds(0, 0);
+
+  const startTime = `${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`;
+
+  // End: 30 min after start
+  const end     = new Date(start.getTime() + 30 * 60_000);
+  const endTime = `${String(end.getHours()).padStart(2, "0")}:${String(end.getMinutes()).padStart(2, "0")}`;
+
+  return { date, startTime, endTime };
 }
 
 function exportTemplate(tpl: Template) {
@@ -191,12 +233,24 @@ export function TemplateForm() {
 
   // Event details
   const [eventTitle, setEventTitle] = useState(existing?.eventTitle ?? "");
-  const [date, setDate] = useState(existing?.date ?? "");
-  const [startTime, setStartTime] = useState(existing?.startTime ?? "");
-  const [endTime, setEndTime] = useState(existing?.endTime ?? "");
+  const [date, setDate] = useState(() => {
+    if (existing) return existing.date ?? "";
+    return getDefaultDateTimes().date;
+  });
+  const [startTime, setStartTime] = useState(() => {
+    if (existing) return existing.startTime ?? "";
+    return getDefaultDateTimes().startTime;
+  });
+  const [endTime, setEndTime] = useState(() => {
+    if (existing) return existing.endTime ?? "";
+    return getDefaultDateTimes().endTime;
+  });
   const [timezone, setTimezone] = useState(existing?.timezone ?? getBrowserTimezone());
   const [location, setLocation] = useState(existing?.location ?? "");
   const [addMeet, setAddMeet] = useState(existing?.addMeet ?? false);
+  const [dateIsVariable, setDateIsVariable] = useState(existing ? (existing.dateIsVariable ?? false) : true);
+  const [startTimeIsVariable, setStartTimeIsVariable] = useState(existing ? (existing.startTimeIsVariable ?? false) : true);
+  const [endTimeIsVariable, setEndTimeIsVariable] = useState(existing ? (existing.endTimeIsVariable ?? false) : true);
 
   // Variables
   const [varName, setVarName] = useState("");
@@ -303,7 +357,12 @@ export function TemplateForm() {
 
     const template: Template = {
       name, variables, content,
-      eventTitle, date, startTime, endTime, timezone, location, addMeet,
+      eventTitle,
+      date:      dateIsVariable      ? "" : date,
+      startTime: startTimeIsVariable ? "" : startTime,
+      endTime:   endTimeIsVariable   ? "" : endTime,
+      timezone, location, addMeet,
+      dateIsVariable, startTimeIsVariable, endTimeIsVariable,
     };
 
     const updated = { ...savedTemplates };
@@ -318,28 +377,48 @@ export function TemplateForm() {
   // can render it identically to how the saved template will look.
   const liveTemplate: Template = {
     name: tplName, variables, content: editorHtml,
-    eventTitle, date, startTime, endTime, timezone, location, addMeet,
+    eventTitle,
+    date:      dateIsVariable      ? "" : date,
+    startTime: startTimeIsVariable ? "" : startTime,
+    endTime:   endTimeIsVariable   ? "" : endTime,
+    timezone, location, addMeet,
+    dateIsVariable, startTimeIsVariable, endTimeIsVariable,
   };
-  const defaultValues = Object.fromEntries(variables.map(v => [v.name, v.default ?? ""]));
+  const defaultValues = Object.fromEntries(
+    getEffectiveVariables(liveTemplate).map(v => [v.name, v.default ?? ""])
+  );
 
   // ── Render ──
 
-  const insertPills = variables.length > 0 && (
+  const allPillVars: Variable[] = [
+    ...variables,
+    ...(dateIsVariable      ? [{ name: "eventDate",  default: "" }] : []),
+    ...(startTimeIsVariable ? [{ name: "startTime",  default: "" }] : []),
+    ...(endTimeIsVariable   ? [{ name: "endTime",    default: "" }] : []),
+  ];
+
+  // Always rendered so the section never pops into existence and causes a layout shift.
+  const insertPills = (
     <div>
       <div style={{ fontSize: 13, color: "var(--tx3)", marginBottom: 8 }}>
         Click to insert into focused field:
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-        {variables.map((v, i) => (
-          <span
-            key={i}
-            className="var-pill"
-            style={{ cursor: "pointer" }}
-            onMouseDown={e => { e.preventDefault(); insertVariable(v.name); }}
-          >
-            {"{" + v.name + "}"}
-          </span>
-        ))}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, minHeight: 26, alignItems: "center" }}>
+        {allPillVars.length > 0
+          ? allPillVars.map((v, i) => (
+              <span
+                key={i}
+                className="var-pill"
+                style={{ cursor: "pointer" }}
+                onMouseDown={e => { e.preventDefault(); insertVariable(v.name); }}
+              >
+                {"{" + v.name + "}"}
+              </span>
+            ))
+          : <span style={{ fontSize: 12, color: "var(--tx3)", fontStyle: "italic" }}>
+              Add variables above to use them in your template
+            </span>
+        }
       </div>
     </div>
   );
@@ -462,17 +541,53 @@ export function TemplateForm() {
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+              {/* Date */}
               <div>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 6, color: "var(--tx)" }}>Date</label>
-                <input type="date" value={date} onChange={e => setDate(e.target.value)} />
+                <div className="var-field-header">
+                  <span>Date</span>
+                  <button type="button" className={`var-toggle-pill${dateIsVariable ? " active" : ""}`}
+                    onClick={() => { setDateIsVariable(v => !v); if (!dateIsVariable) setDate(""); }}>
+                    {"{…}"}
+                  </button>
+                </div>
+                <div className="var-field-input-wrap">
+                  {dateIsVariable
+                    ? <div className="var-field-placeholder">{"{eventDate}"}</div>
+                    : <input type="date" value={date} onChange={e => setDate(e.target.value)} />
+                  }
+                </div>
               </div>
+              {/* Start time */}
               <div>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 6, color: "var(--tx)" }}>Start time</label>
-                <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} />
+                <div className="var-field-header">
+                  <span>Start time</span>
+                  <button type="button" className={`var-toggle-pill${startTimeIsVariable ? " active" : ""}`}
+                    onClick={() => { setStartTimeIsVariable(v => !v); if (!startTimeIsVariable) setStartTime(""); }}>
+                    {"{…}"}
+                  </button>
+                </div>
+                <div className="var-field-input-wrap">
+                  {startTimeIsVariable
+                    ? <div className="var-field-placeholder">{"{startTime}"}</div>
+                    : <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} />
+                  }
+                </div>
               </div>
+              {/* End time */}
               <div>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 6, color: "var(--tx)" }}>End time</label>
-                <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} />
+                <div className="var-field-header">
+                  <span>End time</span>
+                  <button type="button" className={`var-toggle-pill${endTimeIsVariable ? " active" : ""}`}
+                    onClick={() => { setEndTimeIsVariable(v => !v); if (!endTimeIsVariable) setEndTime(""); }}>
+                    {"{…}"}
+                  </button>
+                </div>
+                <div className="var-field-input-wrap">
+                  {endTimeIsVariable
+                    ? <div className="var-field-placeholder">{"{endTime}"}</div>
+                    : <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} />
+                  }
+                </div>
               </div>
             </div>
 
@@ -537,8 +652,8 @@ export function TemplateForm() {
 
       </div>
 
-      {/* ── RIGHT: live preview (sticky) ── */}
-      <div style={{ position: "sticky", top: 24 }}>
+      {/* ── RIGHT: live preview (sticky, height-bounded so content changes never reflow the page) ── */}
+      <div style={{ position: "sticky", top: 24, maxHeight: "calc(100vh - 76px)", overflowY: "auto" }}>
         <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 14, color: "var(--tx)" }}>Live preview</div>
         <EventPreview template={liveTemplate} values={defaultValues} />
       </div>

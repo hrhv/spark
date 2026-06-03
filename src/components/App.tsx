@@ -10,12 +10,14 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
+import { CalendarDays, FileText } from "lucide-react";
 import { CampaignsList, CampaignFlow } from "./CampaignSection";
 import { TemplatesList, TemplateForm } from "./TemplatesSection";
 import type { Templates, Template } from "./TemplatesSection";
 import type { Campaign } from "./CampaignSection";
 import { EventPreview } from "./EventPreview";
 import { LoginPage } from "./LoginPage";
+import { SparkBrand } from "./SparkBrand";
 import { useAuth, SCOPE_META, REQUESTED_SCOPES } from "../context/AuthContext";
 import "@styles/global.css";
 
@@ -175,11 +177,7 @@ function Sidebar() {
     <>
       <aside className="rail">
         <div className="rail-header">
-          <div className="ab-logo">S</div>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: "var(--tx)" }}>Spark</div>
-            <div style={{ fontSize: 12, color: "var(--tx3)" }}>Calendar Invites</div>
-          </div>
+          <SparkBrand size="sm" />
         </div>
 
         <div className="rail-body">
@@ -188,7 +186,7 @@ function Sidebar() {
             end={false}
             className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
           >
-            <div className="nav-icon">📅</div>
+            <div className="nav-icon"><CalendarDays size={16} /></div>
             <div>Campaigns</div>
           </NavLink>
           <NavLink
@@ -196,7 +194,7 @@ function Sidebar() {
             end={false}
             className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
           >
-            <div className="nav-icon">📝</div>
+            <div className="nav-icon"><FileText size={16} /></div>
             <div>Templates</div>
           </NavLink>
         </div>

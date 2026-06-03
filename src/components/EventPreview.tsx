@@ -14,7 +14,7 @@ export const TIMEZONES = [
   { value: "Europe/Berlin",       label: "Berlin (CET/CEST)" },
   { value: "Asia/Dubai",          label: "Dubai (GST)" },
   { value: "Asia/Kolkata",        label: "India (IST)" },
-  { value: "Asia/Calcutta",        label: "India (IST)" },
+  { value: "Asia/Calcutta",       label: "India (IST)" },
   { value: "Asia/Singapore",      label: "Singapore (SGT)" },
   { value: "Asia/Tokyo",          label: "Tokyo (JST)" },
   { value: "Australia/Sydney",    label: "Sydney (AEST/AEDT)" },
@@ -22,7 +22,7 @@ export const TIMEZONES = [
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function formatTime(t: string): string {
+export function formatTime(t: string): string {
   const [h, m] = t.split(":").map(Number);
   return `${h % 12 || 12}:${m.toString().padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
 }
@@ -50,27 +50,50 @@ function substitute(text: string, values: Record<string, string>): string {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface EventPreviewProps {
-  /** The template (saved or a live draft constructed from current form state). */
   template: Template;
-  /**
-   * Flat map of variable name → resolved value for this recipient.
-   * Falls back to variable defaults for any name not present.
-   */
   values?: Record<string, string>;
 }
 
 export function EventPreview({ template, values = {} }: EventPreviewProps) {
-  // Merge: caller-supplied values win; fall back to the variable's default.
+  // Resolve user-defined variables
   const resolved: Record<string, string> = {};
   (template.variables ?? []).forEach(v => {
     resolved[v.name] = values[v.name] ?? v.default ?? "";
   });
 
+  // Determine effective raw values for the event card date line
+  const rawDate  = template.dateIsVariable      ? (values["eventDate"]  ?? "") : (template.date      ?? "");
+  const rawStart = template.startTimeIsVariable ? (values["startTime"]  ?? "") : (template.startTime ?? "");
+  const rawEnd   = template.endTimeIsVariable   ? (values["endTime"]    ?? "") : (template.endTime   ?? "");
+
+  // Add formatted reserved variable values so {eventDate}/{startTime}/{endTime}
+  // tokens in title, location, and description substitute correctly.
+  // Only add when a real value exists — if absent the token stays literal in text.
+  if (template.dateIsVariable && rawDate) {
+    resolved["eventDate"] = new Date(rawDate + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  }
+  if (template.startTimeIsVariable && rawStart) {
+    resolved["startTime"] = formatTime(rawStart);
+  }
+  if (template.endTimeIsVariable && rawEnd) {
+    resolved["endTime"] = formatTime(rawEnd);
+  }
+
   const title    = substitute(template.eventTitle ?? "", resolved);
   const location = substitute(template.location   ?? "", resolved);
   const html     = substitute(template.content,          resolved);
-  const dateLine = formatDateLine(template.date ?? "", template.startTime ?? "", template.endTime ?? "");
+  const dateLine = formatDateLine(rawDate, rawStart, rawEnd);
   const tzLabel  = TIMEZONES.find(tz => tz.value === template.timezone)?.label ?? template.timezone ?? "";
+
+  // Token placeholders shown when a field is a variable but no value has been provided yet
+  const datePlaceholders = [
+    template.dateIsVariable      && !rawDate  ? "{eventDate}"  : null,
+    template.startTimeIsVariable && !rawStart ? "{startTime}"  : null,
+    template.endTimeIsVariable   && !rawEnd   ? "{endTime}"    : null,
+  ].filter(Boolean).join(" · ");
+
+  // Whether the date row has anything to display
+  const hasDateContent = Boolean(dateLine || datePlaceholders);
 
   return (
     <>
@@ -78,7 +101,15 @@ export function EventPreview({ template, values = {} }: EventPreviewProps) {
         <div className="event-preview-title">
           {title || <span style={{ color: "var(--tx3)", fontWeight: 400 }}>Event title…</span>}
         </div>
-        {dateLine  && <div className="event-preview-meta">📅 {dateLine}</div>}
+        {/* Always rendered — visibility keeps the row in flow so the card height never shifts */}
+        <div className="event-preview-meta" style={{ visibility: hasDateContent ? "visible" : "hidden" }}>
+          📅{" "}
+          {dateLine || (
+            <span style={{ color: "var(--tx3)", fontFamily: "var(--mono)", fontSize: 12 }}>
+              {datePlaceholders}
+            </span>
+          )}
+        </div>
         {tzLabel   && <div className="event-preview-meta">🌐 {tzLabel}</div>}
         {location  && <div className="event-preview-meta">📍 {location}</div>}
         {template.addMeet && (

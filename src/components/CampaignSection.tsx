@@ -6,7 +6,8 @@ import { EventPreview } from "./EventPreview";
 import { useAuth } from "../context/AuthContext";
 import { searchDirectoryPeople } from "../utils/directorySearch";
 import type { DirectoryPerson } from "../utils/directorySearch";
-import type { Variable } from "./TemplatesSection";
+import type { Variable, Template } from "./TemplatesSection";
+import { getEffectiveVariables, RESERVED_VARIABLE_NAMES } from "./TemplatesSection";
 
 export interface Campaign {
   id: string;
@@ -39,6 +40,19 @@ function resolveDirectoryField(person: DirectoryPerson, field: DirectoryField): 
     case "lastName":  return person.name.split(" ").slice(1).join(" ");
     case "email":     return person.email;
   }
+}
+
+// ─── Template token scanner ─────────────────────────────────────────────────
+
+/** Extracts every {varName} token that appears in a template's text fields. */
+function extractTemplateTokens(template: Template): string[] {
+  const plain = (template.content ?? "").replace(/<[^>]*>/g, " ");
+  const sources = [template.eventTitle ?? "", template.location ?? "", plain];
+  const tokens = new Set<string>();
+  sources.forEach(s => {
+    (s.match(/\{([^}]+)\}/g) ?? []).forEach(m => tokens.add(m.slice(1, -1)));
+  });
+  return Array.from(tokens);
 }
 
 // ─── Campaign list ───────────────────────────────────────────────────────────
@@ -435,7 +449,7 @@ export function CampaignFlow() {
     if (!selectedTemplate) return null;
 
     const hasDirectoryData = Object.keys(recipientDetails).length > 0;
-    const vars = selectedTemplate.variables;
+    const vars = getEffectiveVariables(selectedTemplate);
 
     return (
       <div className="step-content">
@@ -455,7 +469,7 @@ export function CampaignFlow() {
                     </div>
                   </div>
                   <div className="advanced-rules-body">
-                    {vars.map(v => (
+                    {vars.filter(v => !(RESERVED_VARIABLE_NAMES as readonly string[]).includes(v.name)).map(v => (
                       <div key={v.name} className="rule-row">
                         <span className="var-pill" style={{ cursor: "default" }}>{"{" + v.name + "}"}</span>
                         <span className="rule-arrow">→</span>
@@ -512,11 +526,15 @@ export function CampaignFlow() {
                                 : null;
                               const cellVal = mappings[ri]?.[v.name] ?? "";
                               const isAutoFilled = autoVal !== null && cellVal === autoVal;
+                              const inputType =
+                                v.name === "eventDate" ? "date" :
+                                (v.name === "startTime" || v.name === "endTime") ? "time" :
+                                "text";
                               return (
                                 <td key={vi}>
                                   <input
                                     className={`mapping-input${isAutoFilled ? " mapping-input-auto" : ""}`}
-                                    type="text"
+                                    type={inputType}
                                     placeholder={v.default || "—"}
                                     value={cellVal}
                                     onChange={e => setMapping(ri, v.name, e.target.value)}
@@ -545,6 +563,29 @@ export function CampaignFlow() {
   // ── Step 4: Review ──
   if (step === 4) {
     if (!selectedTemplate) return null;
+
+    // Ground truth: tokens actually present in the template's variable fields
+    // (eventTitle, location, description). Default values come from the declared
+    // variables list; any token with no mapping and no default is unresolved.
+    const varDefaults = Object.fromEntries(
+      getEffectiveVariables(selectedTemplate).map(v => [v.name, v.default ?? ""])
+    );
+    const usedTokens = extractTemplateTokens(selectedTemplate);
+
+    const missingByVar: Record<string, number> = {};
+    recipients.forEach((_, ri) => {
+      usedTokens.forEach(name => {
+        const val = mappings[ri]?.[name] || varDefaults[name] || "";
+        if (!val) missingByVar[name] = (missingByVar[name] ?? 0) + 1;
+      });
+    });
+    const hasUnresolved = Object.keys(missingByVar).length > 0;
+    const unresolvedError = hasUnresolved
+      ? "Missing values: " + Object.entries(missingByVar)
+          .map(([name, count]) => `{${name}} for ${count} recipient${count !== 1 ? "s" : ""}`)
+          .join(", ") + ". Go back and fill them in."
+      : "";
+
     return (
       <div className="step-content">
         <div className="panel">
@@ -561,7 +602,7 @@ export function CampaignFlow() {
               </div>
               <div className="stat-card">
                 <div className="stat-label">Variables</div>
-                <div className="stat-value">{selectedTemplate.variables.length}</div>
+                <div className="stat-value">{getEffectiveVariables(selectedTemplate).length}</div>
               </div>
             </div>
 
@@ -576,7 +617,7 @@ export function CampaignFlow() {
             {previewIdx !== "" && (() => {
               const ri = parseInt(previewIdx);
               const values = Object.fromEntries(
-                selectedTemplate.variables.map(v => [
+                getEffectiveVariables(selectedTemplate).map(v => [
                   v.name,
                   mappings[ri]?.[v.name] || v.default || "",
                 ])
@@ -591,9 +632,14 @@ export function CampaignFlow() {
               );
             })()}
 
+            {unresolvedError && (
+              <div style={{ fontSize: 13, color: "var(--red)", marginTop: 16, marginBottom: 10 }}>
+                {unresolvedError}
+              </div>
+            )}
             <div className="button-group">
               <button className="btn" onClick={() => setStep(3)}>← Back</button>
-              <button className="btn btn-primary" onClick={() => setShowConfirm(true)}>Start campaign →</button>
+              <button className="btn btn-primary" disabled={hasUnresolved} onClick={() => setShowConfirm(true)}>Start campaign →</button>
             </div>
           </div>
         </div>

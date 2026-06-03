@@ -85,15 +85,13 @@ body {
 .nav-icon {
   width: 20px;
   height: 20px;
-  border: 0.5px solid currentColor;
-  border-radius: 4px;
   flex-shrink: 0;
-  opacity: 0.5;
+  opacity: 0.55;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
 }
+.nav-item.active .nav-icon { opacity: 0.9; }
 
 /* ── Main content ────────────────────────────────────────── */
 .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
@@ -607,26 +605,36 @@ tr:hover td { background: var(--bg2); }
   max-width: 92vw;
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.10);
 }
-.login-brand {
+/* ── SparkBrand (shared logo + name, used in sidebar and login) ─── */
+.spark-brand {
   display: flex;
   align-items: center;
+  gap: 12px;
+}
+.spark-brand-lg {
   gap: 14px;
   margin-bottom: 24px;
 }
-.login-logo {
-  width: 44px;
-  height: 44px;
-  background: var(--blue);
+.spark-brand-logo {
   border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 20px;
-  font-weight: 700;
   flex-shrink: 0;
-  font-family: var(--mono);
+  display: block;
 }
+.spark-brand-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--tx);
+  line-height: 1.2;
+}
+.spark-brand-lg .spark-brand-name { font-size: 20px; font-weight: 700; }
+.spark-brand-sub {
+  font-size: 12px;
+  color: var(--tx3);
+  margin-top: 2px;
+}
+.spark-brand-lg .spark-brand-sub { font-size: 13px; }
+
+/* kept for backward compat — no longer used as the S box */
 .login-title    { font-size: 20px; font-weight: 700; color: var(--tx); }
 .login-subtitle { font-size: 13px; color: var(--tx3); margin-top: 2px; }
 .login-divider  { height: 0.5px; background: var(--bd); margin-bottom: 22px; }
@@ -795,6 +803,59 @@ tr:hover td { background: var(--bg2); }
   background: var(--bg3);
   color: var(--tx3);
   border: 0.5px solid var(--bd);
+}
+
+/* ── Variable field toggle (date/time as variable) ──────────── */
+.var-field-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tx);
+}
+.var-toggle-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--mono);
+  background: transparent;
+  color: var(--tx3);
+  border: 0.5px solid var(--bd2);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  line-height: 1.6;
+  flex-shrink: 0;
+}
+.var-toggle-pill:hover { background: var(--bg2); color: var(--tx2); }
+.var-toggle-pill.active {
+  background: var(--blue-bg);
+  color: var(--blue-tx);
+  border-color: var(--blue-bd);
+}
+/* Height-locked wrapper — picker ↔ placeholder swap never shifts layout */
+.var-field-input-wrap {
+  height: 38px;
+  overflow: hidden;
+}
+.var-field-input-wrap input { height: 38px; box-sizing: border-box; }
+.var-field-placeholder {
+  display: flex;
+  align-items: center;
+  height: 38px;
+  padding: 0 12px;
+  border: 0.5px dashed var(--blue-bd);
+  border-radius: var(--r);
+  background: var(--blue-bg);
+  color: var(--blue-tx);
+  font-size: 13px;
+  font-family: var(--mono);
+  font-weight: 500;
+  box-sizing: border-box;
 }
 
 /* ── Advanced rules ──────────────────────────────────────── */

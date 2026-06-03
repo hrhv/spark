@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useGoogleLogin } from "@react-oauth/google";
 import { useAuth, REQUESTED_SCOPES } from "../context/AuthContext";
+import { SparkBrand } from "./SparkBrand";
 
 function GoogleColorIcon() {
   return (
@@ -54,13 +55,7 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <div className="login-brand">
-          <div className="login-logo">S</div>
-          <div className="login-brand-text">
-            <div className="login-title">Spark</div>
-            <div className="login-subtitle">Bulk Calendar Invitations</div>
-          </div>
-        </div>
+        <SparkBrand size="lg" />
 
         <div className="login-divider" />
 
