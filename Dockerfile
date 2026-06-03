@@ -3,13 +3,15 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Install dependencies in a separate layer so changes to source don't bust the cache
+# Install dependencies in a separate layer so source changes don't bust the cache
 COPY package.json package-lock.json ./
 RUN npm ci --frozen-lockfile
 
 # VITE_GOOGLE_CLIENT_ID is baked into the JS bundle at build time by Vite.
-# Pass it with: docker build --build-arg VITE_GOOGLE_CLIENT_ID=xxx.apps.googleusercontent.com
+# Fail fast if it is missing — an empty client ID will silently break login.
 ARG  VITE_GOOGLE_CLIENT_ID
+RUN  test -n "$VITE_GOOGLE_CLIENT_ID" || \
+     (echo "ERROR: --build-arg VITE_GOOGLE_CLIENT_ID=<your_client_id>.apps.googleusercontent.com is required" && exit 1)
 ENV  VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
 
 COPY . .
