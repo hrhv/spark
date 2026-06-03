@@ -1,35 +1,12 @@
-import { GoogleCalendarEvent } from "@/types";
-import type { Template, Variable } from "../components/TemplatesSection";
+import type {
+  Template,
+  Variable,
+  SparkCalendarDateTime,
+  SparkCalendarEventPayload,
+} from "@/types";
 
-// ─── Output types ─────────────────────────────────────────────────────────────
-
-export interface SparkCalendarDateTime {
-  /** RFC3339 string (e.g. "2026-06-15T14:00:00"). Present when a time is set. */
-  dateTime?: string;
-  /** YYYY-MM-DD string. Used for all-day events (no startTime on the template). */
-  date?: string;
-  /** IANA timezone name. Only set alongside dateTime. */
-  timeZone?: string;
-}
-
-export interface SparkCalendarEventPayload {
-  /** Maps to Google Calendar `summary`. */
-  summary: string;
-  /** Plain-text version of the rich-text description. */
-  description: string;
-  /** Resolved location string (variables substituted). */
-  location: string;
-  start: SparkCalendarDateTime;
-  end: SparkCalendarDateTime;
-  /** Only present when template.addMeet is true. */
-  conferenceData?: {
-    createRequest: {
-      /** Caller-supplied unique string. Must be stable across retries. */
-      requestId: string;
-      conferenceSolutionKey: { type: "hangoutsMeet" };
-    };
-  };
-}
+// Re-export so callers can import the payload type from here if preferred.
+export type { SparkCalendarDateTime, SparkCalendarEventPayload };
 
 // ─── Helpers (exported for unit testing) ─────────────────────────────────────
 
@@ -71,23 +48,20 @@ export function substituteVariables(
 /**
  * Converts a Spark `Template` into a Google Calendar Events API payload.
  *
- * This is a pure function — no DOM, no side effects — so it can be unit tested
- * without a browser environment.
  *
  * @param template            - The Spark template to convert.
  * @param values              - Per-recipient variable overrides (name → value).
  *                              Falls back to each variable's declared default.
- * @param conferenceRequestId - Unique idempotency key for the Meet conference
- *                              create request. Required when `template.addMeet`
- *                              is true; caller is responsible for uniqueness
- *                              (e.g. a UUID or `recipientId + campaignId`).
+ * @param conferenceRequestId - Unique idempotency key for the Meet conference.
+ *                              Required when `template.addMeet` is true; must
+ *                              be stable across retries (e.g. `${campaignId}-${ri}`).
  */
 export function toGoogleCalendarEvent(
   template: Template,
   values: Record<string, string> = {},
   conferenceRequestId = ""
-): GoogleCalendarEvent | SparkCalendarEventPayload {
-  // Resolve all variables: caller wins, then fall back to declared defaults.
+): SparkCalendarEventPayload {
+  // Resolve template variables: caller-supplied value wins, then declared default.
   const resolved: Record<string, string> = {};
   (template.variables ?? []).forEach((v: Variable) => {
     resolved[v.name] = values[v.name] ?? v.default ?? "";

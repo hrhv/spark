@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Campaign } from "./CampaignSection";
+import type { Campaign } from "@/types";
 
 interface Props {
   campaigns: Campaign[];

@@ -1,4 +1,4 @@
-import type { Template } from "./TemplatesSection";
+import type { Template } from "@/types";
 
 // ─── Timezones (single source of truth) ──────────────────────────────────────
 

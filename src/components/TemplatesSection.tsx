@@ -3,47 +3,13 @@ import { v4 as uuidv4 } from "uuid";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAppContext } from "./App";
 import { EventPreview, TIMEZONES } from "./EventPreview";
+import type { Variable, Template, Templates } from "@/types";
+import { RESERVED_VARIABLE_NAMES } from "@/types";
+import { getEffectiveVariables } from "@utils/templateUtils";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-export interface Variable {
-  name: string;
-  default: string;
-}
-
-export interface Template {
-  name: string;
-  variables: Variable[];
-  content: string;
-  // Event details (optional for backward compat with existing saved templates)
-  eventTitle?: string;
-  date?: string;
-  startTime?: string;
-  endTime?: string;
-  timezone?: string;
-  location?: string;
-  addMeet?: boolean;
-  // Reserved variable flags — when true the field is per-recipient, not fixed
-  dateIsVariable?: boolean;
-  startTimeIsVariable?: boolean;
-  endTimeIsVariable?: boolean;
-}
-
-export type Templates = Record<string, Template>;
-
-// ─── Reserved variables ───────────────────────────────────────────────────────
-
-export const RESERVED_VARIABLE_NAMES = ["eventDate", "startTime", "endTime"] as const;
-export type ReservedVariableName = typeof RESERVED_VARIABLE_NAMES[number];
-
-/** Returns all variables including implicit reserved ones from date/time flags. */
-export function getEffectiveVariables(template: Template): Variable[] {
-  const vars = [...(template.variables ?? [])];
-  if (template.dateIsVariable)      vars.push({ name: "eventDate",  default: "" });
-  if (template.startTimeIsVariable) vars.push({ name: "startTime",  default: "" });
-  if (template.endTimeIsVariable)   vars.push({ name: "endTime",    default: "" });
-  return vars;
-}
+// Re-export so existing imports from TemplatesSection keep compiling.
+export type { Variable, Template, Templates };
+export { RESERVED_VARIABLE_NAMES, getEffectiveVariables };
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 

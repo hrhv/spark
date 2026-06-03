@@ -3,8 +3,7 @@
  * Handles OAuth and event creation
  */
 
-import { GoogleAuthToken, GoogleCalendarEvent, Invitee } from "@/types";
-import type { SparkCalendarEventPayload } from "./templateToCalendarEvent";
+import type { GoogleAuthToken, GoogleCalendarEvent, Invitee, SparkCalendarEventPayload } from "@/types";
 
 const GOOGLE_CLIENT_ID =
   import.meta.env.VITE_GOOGLE_CLIENT_ID ||

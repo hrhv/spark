@@ -1,15 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
+import type { GoogleUser } from "@/types";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export interface GoogleUser {
-  name: string;
-  email: string;
-  picture: string;
-  /** Hosted domain — present only for Google Workspace accounts. */
-  hd?: string;
-}
+export type { GoogleUser };
 
 interface StoredAuth {
   user: GoogleUser;

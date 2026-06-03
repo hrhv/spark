@@ -13,8 +13,7 @@ import {
 import { ArrowLeft, CalendarDays, FileText } from "lucide-react";
 import { CampaignsList, CampaignFlow } from "./CampaignSection";
 import { TemplatesList, TemplateForm } from "./TemplatesSection";
-import type { Templates, Template } from "./TemplatesSection";
-import type { Campaign } from "./CampaignSection";
+import type { Templates, Template, Campaign } from "@/types";
 import { EventPreview } from "./EventPreview";
 import { LoginPage } from "./LoginPage";
 import { SparkBrand } from "./SparkBrand";

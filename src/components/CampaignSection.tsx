@@ -5,60 +5,18 @@ import { useAppContext } from "./App";
 import { EventPreview } from "./EventPreview";
 import { useAuth } from "../context/AuthContext";
 import { searchDirectoryPeople } from "../utils/directorySearch";
-import type { DirectoryPerson } from "../utils/directorySearch";
-import type { Variable, Template } from "./TemplatesSection";
-import { getEffectiveVariables, RESERVED_VARIABLE_NAMES } from "./TemplatesSection";
+import type { Variable, Template, DirectoryPerson, Campaign, CampaignSendError, SparkCalendarEventPayload } from "@/types";
+import { RESERVED_VARIABLE_NAMES } from "@/types";
+import { getEffectiveVariables, resolveDirectoryField, DIRECTORY_FIELD_LABELS } from "@utils/templateUtils";
+import type { DirectoryField } from "@utils/templateUtils";
+import { buildRecipientValues } from "@utils/campaignUtils";
 import { toGoogleCalendarEvent } from "../utils/templateToCalendarEvent";
-import type { SparkCalendarEventPayload } from "../utils/templateToCalendarEvent";
 import { createEventForRecipient } from "../utils/googleCalendar";
 
-export interface CampaignSendError {
-  email: string;
-  error: string;
-}
-
-export interface Campaign {
-  id: string;
-  status: "draft" | "sent";
-  templateId: string;
-  templateName: string;
-  recipientCount: number;
-  recipients: string[];
-  variables: Variable[];
-  timestamp: number;
-  // Sent-only
-  sentAt?: string;
-  successCount?: number;
-  failureCount?: number;
-  errors?: CampaignSendError[];
-  // Draft state — persisted across sessions
-  step?: number;
-  mappings?: Record<string, Record<string, string>>;
-  variableRules?: Record<string, string>;
-  recipientDetails?: Record<string, DirectoryPerson>;
-}
+// Re-export so App.tsx and other callers continue to work.
+export type { Campaign, CampaignSendError };
 
 type Mappings = Record<number, Record<string, string>>;
-
-// ─── Directory field helpers ─────────────────────────────────────────────────
-
-type DirectoryField = "fullName" | "firstName" | "lastName" | "email";
-
-const DIRECTORY_FIELD_LABELS: Record<DirectoryField, string> = {
-  fullName:  "Full name",
-  firstName: "First name",
-  lastName:  "Last name",
-  email:     "Email",
-};
-
-function resolveDirectoryField(person: DirectoryPerson, field: DirectoryField): string {
-  switch (field) {
-    case "fullName":  return person.name;
-    case "firstName": return person.name.split(" ")[0] ?? "";
-    case "lastName":  return person.name.split(" ").slice(1).join(" ");
-    case "email":     return person.email;
-  }
-}
 
 // ─── Campaign export ─────────────────────────────────────────────────────────
 
@@ -456,18 +414,9 @@ export function CampaignFlow() {
       const email = recipients[ri];
       const person = recipientDetails[email];
 
-      // Build per-recipient variable values (includes reserved date/time vars).
-      const values: Record<string, string> = {};
-      getEffectiveVariables(selectedTemplate).forEach(v => {
-        values[v.name] = mappings[ri]?.[v.name] ?? v.default ?? "";
-      });
-
+      const values = buildRecipientValues(selectedTemplate, ri, mappings);
       const conferenceRequestId = `${draftId}-${ri}`;
-      const eventPayload = toGoogleCalendarEvent(
-        selectedTemplate,
-        values,
-        conferenceRequestId
-      ) as SparkCalendarEventPayload;
+      const eventPayload = toGoogleCalendarEvent(selectedTemplate, values, conferenceRequestId);
 
       const result = await createEventForRecipient(
         accessToken,

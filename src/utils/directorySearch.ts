@@ -1,8 +1,7 @@
-export interface DirectoryPerson {
-  name: string;
-  email: string;
-  photo?: string;
-}
+import type { DirectoryPerson } from "@/types";
+
+// Re-export so existing callers that imported from here keep working.
+export type { DirectoryPerson };
 
 /**
  * Searches the authenticated user's Google Workspace domain directory.
@@ -32,9 +31,9 @@ export async function searchDirectoryPeople(
   const data = await res.json();
   return ((data.people ?? []) as Record<string, unknown>[])
     .map(p => {
-      const names = p.names as { displayName?: string }[] | undefined;
+      const names  = p.names  as { displayName?: string }[]  | undefined;
       const emails = p.emailAddresses as { value?: string }[] | undefined;
-      const photos = p.photos as { url?: string }[] | undefined;
+      const photos = p.photos as { url?: string }[]           | undefined;
       return {
         name:  names?.[0]?.displayName ?? "",
         email: emails?.[0]?.value ?? "",

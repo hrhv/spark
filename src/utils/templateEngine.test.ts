@@ -157,7 +157,7 @@ describe("templateEngine", () => {
       const result = validateTemplate(template, invitees);
 
       // 2 out of 3 variables found
-      expect(result.coverage).toBe(expect.any(Number));
+      expect(result.coverage).toEqual(expect.any(Number));
     });
 
     it("should handle template with no variables", () => {
