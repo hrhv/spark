@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { v4 as uuidv4 } from "uuid";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAppContext } from "./App";
 import { EventPreview, TIMEZONES } from "./EventPreview";
@@ -29,6 +30,21 @@ export type Templates = Record<string, Template>;
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const DEFAULT_CONTENT = "Hello {recipientName},\n\nI'd like to invite you to {meetingType}.\n\nLooking forward to meeting you!\n\nBest regards,\n{senderName}";
+
+function getBrowserTimezone(): string {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return TIMEZONES.some(t => t.value === tz) ? tz : "UTC";
+}
+
+function exportTemplate(tpl: Template) {
+  const blob = new Blob([JSON.stringify(tpl, null, 2)], { type: "application/json" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = tpl.name.replace(/[^a-z0-9]/gi, "_").toLowerCase() + ".spark.json";
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -137,6 +153,7 @@ export function TemplatesList() {
                 <div style={{ display: "flex", gap: 8 }}>
                   <button className="btn btn-sm" onClick={() => setPreviewTemplate(tpl)}>Preview</button>
                   <button className="btn btn-sm" onClick={() => navigate(`/templates/${id}/edit`)}>Edit</button>
+                  <button className="btn btn-sm" onClick={() => exportTemplate(tpl)}>Export</button>
                   <button className="btn btn-sm btn-danger" onClick={() => handleDelete(id)}>Delete</button>
                 </div>
               </div>
@@ -162,13 +179,22 @@ export function TemplateForm() {
 
   // Template name
   const [tplName, setTplName] = useState(existing?.name ?? "");
+  const [copiedId, setCopiedId] = useState(false);
+
+  function copyId() {
+    if (!editingId) return;
+    navigator.clipboard.writeText(editingId).then(() => {
+      setCopiedId(true);
+      setTimeout(() => setCopiedId(false), 1500);
+    });
+  }
 
   // Event details
   const [eventTitle, setEventTitle] = useState(existing?.eventTitle ?? "");
   const [date, setDate] = useState(existing?.date ?? "");
   const [startTime, setStartTime] = useState(existing?.startTime ?? "");
   const [endTime, setEndTime] = useState(existing?.endTime ?? "");
-  const [timezone, setTimezone] = useState(existing?.timezone ?? "America/New_York");
+  const [timezone, setTimezone] = useState(existing?.timezone ?? getBrowserTimezone());
   const [location, setLocation] = useState(existing?.location ?? "");
   const [addMeet, setAddMeet] = useState(existing?.addMeet ?? false);
 
@@ -281,7 +307,7 @@ export function TemplateForm() {
     };
 
     const updated = { ...savedTemplates };
-    updated[editingId ?? ("tpl-" + Date.now())] = template;
+    updated[editingId ?? uuidv4()] = template;
     updateTemplates(updated);
     navigate("/templates");
   }
@@ -328,6 +354,36 @@ export function TemplateForm() {
         <div className="panel">
           <div className="panel-header">Template details</div>
           <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+            {editingId && (
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>Template ID</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="text"
+                    value={editingId}
+                    disabled
+                    style={{ flex: 1, background: "var(--bg2)", color: "var(--tx3)", fontFamily: "var(--mono)", fontSize: 13 }}
+                  />
+                  <button
+                    className="btn btn-sm"
+                    onClick={copyId}
+                    style={{
+                      flexShrink: 0,
+                      minWidth: 80,
+                      transition: "background 0.1s, color 0.1s, border-color 0.1s",
+                      ...(copiedId ? {
+                        background: "var(--green-bg)",
+                        color: "var(--green-tx)",
+                        borderColor: "var(--green-bd)",
+                      } : {}),
+                    }}
+                  >
+                    {copiedId ? "✓ Copied" : "Copy"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Template name</label>
@@ -376,6 +432,14 @@ export function TemplateForm() {
                 </div>
               )}
               {insertPills}
+            </div>
+
+            <div className="variables-panel">
+              <div style={{ fontSize: 13, color: "var(--tx2)", marginBottom: 5 }}><strong>Variable syntax</strong></div>
+              <div style={{ fontSize: 13, color: "var(--tx3)", lineHeight: 1.6 }}>
+                Use <span className="var-pill">{"{variableName}"}</span> in title, location, or description.
+                Each variable is replaced individually per recipient.
+              </div>
             </div>
 
           </div>
@@ -458,14 +522,6 @@ export function TemplateForm() {
                 suppressContentEditableWarning
                 onInput={syncEditor}
               />
-            </div>
-
-            <div className="variables-panel">
-              <div style={{ fontSize: 13, color: "var(--tx2)", marginBottom: 5 }}><strong>Variable syntax</strong></div>
-              <div style={{ fontSize: 13, color: "var(--tx3)", lineHeight: 1.6 }}>
-                Use <span className="var-pill">{"{variableName}"}</span> in title, location, or description.
-                Each variable is replaced individually per recipient.
-              </div>
             </div>
 
           </div>

@@ -14,6 +14,7 @@ export const TIMEZONES = [
   { value: "Europe/Berlin",       label: "Berlin (CET/CEST)" },
   { value: "Asia/Dubai",          label: "Dubai (GST)" },
   { value: "Asia/Kolkata",        label: "India (IST)" },
+  { value: "Asia/Calcutta",        label: "India (IST)" },
   { value: "Asia/Singapore",      label: "Singapore (SGT)" },
   { value: "Asia/Tokyo",          label: "Tokyo (JST)" },
   { value: "Australia/Sydney",    label: "Sydney (AEST/AEDT)" },

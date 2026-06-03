@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { v4 as uuidv4 } from "uuid";
 import { useNavigate } from "react-router-dom";
 import { useAppContext } from "./App";
 import { EventPreview } from "./EventPreview";
@@ -185,7 +186,7 @@ export function CampaignFlow() {
   function startCampaign() {
     if (!selectedTemplate) return;
     const c: Campaign = {
-      id: "campaign-" + Date.now(),
+      id: uuidv4(),
       templateName: selectedTemplate.name,
       templateId: selectedTemplateId,
       recipientCount: recipients.length,
@@ -215,17 +216,19 @@ export function CampaignFlow() {
               <>
                 <div className="form-group">
                   <label>Template</label>
-                  <select value={selectedTemplateId} onChange={e => setSelectedTemplateId(e.target.value)}>
-                    <option value="">— Select a template —</option>
-                    {templateEntries.map(([id, tpl]) => (
-                      <option key={id} value={id}>{tpl.name}</option>
-                    ))}
-                  </select>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <select value={selectedTemplateId} onChange={e => setSelectedTemplateId(e.target.value)} style={{ flex: 1 }}>
+                      <option value="">— Select a template —</option>
+                      {templateEntries.map(([id, tpl]) => (
+                        <option key={id} value={id}>{tpl.name}</option>
+                      ))}
+                    </select>
+                    <button className="btn btn-sm" style={{ flexShrink: 0 }} onClick={() => navigate("/templates/new")}>+ New Template</button>
+                  </div>
                 </div>
                 {selectedTemplate && (
-                  <div className="alert alert-info">
-                    <strong>{selectedTemplate.name}</strong><br />
-                    Variables: {selectedTemplate.variables.map(v => "{" + v.name + "}").join(", ") || "None"}
+                  <div style={{ marginTop: 8 }}>
+                    <EventPreview template={selectedTemplate} />
                   </div>
                 )}
               </>
@@ -273,9 +276,6 @@ export function CampaignFlow() {
                 ))}
               </div>
             )}
-            <div className="alert alert-info">
-              Default values will be used for variables if not specified in the mapping step.
-            </div>
             <div className="button-group">
               <button className="btn" onClick={() => setStep(1)}>← Back</button>
               <button className="btn btn-primary" disabled={recipients.length === 0} onClick={() => setStep(3)}>
